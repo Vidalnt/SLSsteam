@@ -39,6 +39,14 @@ bool Patterns::init()
 	{
 		if (!pattern->find())
 		{
+			if (std::string(pattern->name) == "CCMConnection::RecvPkt" ||
+			    std::string(pattern->name) == "LoadDepotDecryptionKey" ||
+			    std::string(pattern->name) == "BuildDepotDependency" ||
+			    std::string(pattern->name) == "CUser::MarkLicenseAsChanged" ||
+			    std::string(pattern->name) == "CUser::ProcessPendingLicenseUpdates" ||
+			    std::string(pattern->name) == "CUtlMemory::Grow" ||
+			    std::string(pattern->name) == "CPackageInfo::GetPackageInfo")
+				continue;
 			found = false;
 		}
 	}
@@ -195,6 +203,66 @@ namespace Patterns
 		{
 			"CUserAppManager::BuildDepotDependency",
 			"E8 ? ? ? ? 83 C4 ? 84 C0 74 ? 8B 45 ? 85 C0 89 45",
+			SigFollowMode::Relative
+		};
+	}
+
+	namespace CCMConnection
+	{
+		Pattern_t RecvPkt
+		{
+			"CCMConnection::RecvPkt",
+			"55 89 E5 57 E8 ? ? ? ? 81 C7 ? ? ? ? 56 53 83 EC 34 6A 01 FF 75 0C 89 FB E8 ? ? ? ?",
+			SigFollowMode::None
+		};
+	}
+
+	Pattern_t LoadDepotDecryptionKey
+	{
+		"LoadDepotDecryptionKey",
+		"55 57 56 53 E8 ? ? ? ? 81 C3 ? ? ? ? 83 EC 24 8B 44 24 44 8B 6C 24 38 8B 7C 24 3C 8B 74 24 40 89 44 24 10 8B 44 24 48 89 44 24 14",
+		SigFollowMode::None
+	};
+
+	Pattern_t BuildDepotDependency
+	{
+		"BuildDepotDependency",
+		"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 81 EC 2C 02 00 00 8B 45 08 89 85 1C FE FF FF 8B 45 10 89 85 24 FE FF FF",
+		SigFollowMode::None
+	};
+
+	namespace CPackageInfo
+	{
+		Pattern_t GetPackageInfo
+		{
+			"CPackageInfo::GetPackageInfo",
+			"E8 ? ? ? ? 05 ? ? ? ? 55 89 E5 57 56 53 83 EC 3C 8B 55 14 8B 75 0C 89 45 CC 8B 45 10 89 55 DC 89 45 D8 8B 45 08",
+			SigFollowMode::None
+		};
+	}
+
+	namespace CUser
+	{
+		Pattern_t MarkLicenseAsChanged
+		{
+			"CUser::MarkLicenseAsChanged",
+			"55 57 56 53 E8 ? ? ? ? 81 C3 ? ? ? ? 83 EC 2C 8B 74 24 40 8B 44 24 48 8B BE ? 1B 00 00 88 44 24 1C 8D 86 ? 1A 00 00",
+			SigFollowMode::None
+		};
+		Pattern_t ProcessPendingLicenseUpdates
+		{
+			"CUser::ProcessPendingLicenseUpdates",
+			"55 E8 ? ? ? ? 81 C5 ? ? ? ? 57 56 53 83 EC 0C 8B 7C 24 20 8B B7 ? 1B 00 00 83 EE 01 79 0F EB 5D",
+			SigFollowMode::None
+		};
+	}
+
+	namespace CUtlMemory
+	{
+		Pattern_t Grow
+		{
+			"CUtlMemory::Grow",
+			"E8 ? ? ? ? 8B 85 04 FF FF FF 83 C4 10 8B 40 54 89 85 FC FE FF FF",
 			SigFollowMode::Relative
 		};
 	}

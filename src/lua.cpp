@@ -1,3 +1,5 @@
+// LuaJIT implementation disabled — kept for reference, replaced by Lua 5.4
+#if 0
 #include "lua.hpp"
 
 #include "sdk/sdk.hpp"
@@ -544,4 +546,25 @@ void Lua::registerCallback(const std::string& name, luabridge::LuaRef fn)
 {
 	callbacks[name].emplace_back(fn);
 	LOG_DEBUG("Registered lua callback for %s\n", name.c_str());
+}
+#endif
+
+// Stubs when disabled
+#include "lua.hpp"
+#include <filesystem>
+#include <string>
+extern "C" void* place_lua_hook(const int, const void*)
+{
+	return nullptr;
+}
+extern "C" void* unpack_user_data(const void*)
+{
+	return nullptr;
+}
+namespace Lua
+{
+	void init(const bool) {}
+	void initLuaState() {}
+	void onFileChange(const std::filesystem::path&, const int) {}
+	bool runLua(const std::filesystem::path&) { return false; }
 }

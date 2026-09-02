@@ -1,5 +1,8 @@
 #pragma once
 
+// LuaJIT implementation disabled — kept for reference.
+// Replaced by Lua 5.4 (src/lua/LuaLoader.*). File is retained, not deleted.
+#if 0
 #include "filewatcher.hpp"
 #include "log.hpp"
 
@@ -78,4 +81,32 @@ namespace Lua
 	}
 
 	void registerCallback(const std::string& name, luabridge::LuaRef fn);
+}
+#endif
+
+// Minimal stubs exposed when LuaJIT is disabled.
+#include <string>
+#include <filesystem>
+#include <cstdint>
+extern "C" void* place_lua_hook(const int index, const void* pTarget);
+extern "C" void* unpack_user_data(const void* pData);
+namespace Lua
+{
+	typedef uint64_t Address_t;
+	typedef void* Ptr_t;
+	namespace Callbacks
+	{
+		constexpr const char* SLSsteam_ConfigLoaded = "SLSsteam::configLoaded";
+		constexpr const char* SLSsteam_ConfigLoading = "SLSsteam::configLoading";
+		constexpr const char* SLSsteam_Initialized = "SLSsteam::initialized";
+		constexpr const char* SLSsteam_LuaReload = "SLSsteam::luaReload";
+		constexpr const char* Network_RecvPkt = "Network::recvPkt";
+		constexpr const char* Network_SendPkt = "Network::sendPkt";
+	}
+	void init(const bool fullReload = false);
+	void initLuaState();
+	void onFileChange(const std::filesystem::path& path, const int eventMask);
+	bool runLua(const std::filesystem::path& path);
+	template<typename ...Args>
+	inline unsigned int fireCallback(const char*, Args...) { return 0; }
 }

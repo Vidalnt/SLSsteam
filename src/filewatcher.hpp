@@ -34,6 +34,8 @@ public:
 	~CFileWatcher();
 
 	int addFile(const std::filesystem::path& path);
+	int addFile(const char* path) { return addFile(std::filesystem::path(path)); }
+	bool addDirectory(const char* path) { return addFile(std::filesystem::path(path)) != -1; }
 	bool removeFile(const std::filesystem::path& path);
 	bool start();
 	void stop();

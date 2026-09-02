@@ -5,14 +5,18 @@
 #include "mtvar.hpp"
 #include "log.hpp"
 
+#include "yaml-cpp/exceptions.h"
+#include "yaml-cpp/node/node.h"
 #include "yaml-cpp/yaml.h"
 
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <pthread.h>
 #include <string>
 #include <type_traits>
+#include <vector>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -95,6 +99,17 @@ public:
 	MTVariable<bool> dumpInterfaceMaps;
 	MTVariable<bool> extendedLogging;
 
+	MTVariable<std::unordered_set<AppId_t>> yamlAddedAppIds;
+	MTVariable<std::unordered_map<AppId_t, uint64_t>> yamlAppTokens;
+
+	MTVariable<bool> packageInjection;
+	MTVariable<bool> useLuaManifestOverrides;
+	MTVariable<uint32_t> manifestTimeoutConnectMs;
+	MTVariable<uint32_t> manifestTimeoutTotalMs;
+	MTVariable<bool> manifestReuseConnection;
+	MTVariable<std::vector<std::string>> luaPaths;
+
+	std::mutex appsChangedMutex;
 	MTVariable<std::unordered_set<AppId_t>> newApps;
 	MTVariable<std::unordered_set<AppId_t>> removedApps;
 

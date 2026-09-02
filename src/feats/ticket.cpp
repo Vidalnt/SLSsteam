@@ -5,11 +5,14 @@
 #include "../process.hpp"
 
 #include "fakeappid.hpp"
+#include "forge_ticket.hpp"
+#include "../ownership.hpp"
 
 #include "base64/base64.hpp"
 #include "yaml-cpp/emitter.h"
 #include "yaml-cpp/emittermanip.h"
 
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <ios>
@@ -167,6 +170,41 @@ void Ticket::getTicketOwnershipExtendedData(const AppId_t appId)
 	}
 
 	oneTimeSteamIdSpoof[appId] = cached->steamId;
+}
+
+uint32_t Ticket::getTicketOwnershipExtendedData(uint32_t appId, void* pTicket, uint32_t retSize, uint32_t* pOffAppId, uint32_t* pOffSteamId, uint32_t* pOffSig, uint32_t* pSigSize, void* pClientUser)
+{
+	if (retSize != 0)
+	{
+		const SavedTicket* cached = getCachedTicket(appId);
+		if (cached)
+			oneTimeSteamIdSpoof[appId] = cached->steamId;
+		return 0;
+	}
+	if (!Ownership::shouldSpoofOwnership(appId))
+		return 0;
+	ForgeTicket::acquireSourceTicket(pClientUser);
+	ForgeTicket::AppOwnershipTicket forged{};
+	if (!ForgeTicket::getAppOwnershipTicket(appId, forged))
+		return 0;
+	if (forged.data.empty() || forged.data.size() > 0x400)
+		return 0;
+	std::memcpy(pTicket, forged.data.data(), forged.data.size());
+	if (pOffAppId)
+		*pOffAppId = forged.appIdOffset;
+	if (pOffSteamId)
+		*pOffSteamId = forged.steamIdOffset;
+	if (pOffSig)
+		*pOffSig = forged.signatureOffset;
+	if (pSigSize)
+		*pSigSize = forged.signatureSize;
+	if (forged.data.size() >= 16)
+	{
+		uint64_t sid64 = 0;
+		std::memcpy(&sid64, forged.data.data() + ForgeTicket::kAppTicketSteamIdOffset, 8);
+		oneTimeSteamIdSpoof[appId] = CSteamId(sid64);
+	}
+	return forged.totalSize;
 }
 
 std::filesystem::path Ticket::getEncryptedTicketPath(const AppId_t appId)

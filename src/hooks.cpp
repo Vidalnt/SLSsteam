@@ -6,6 +6,15 @@
 #include "feats/misc.hpp"
 #include "feats/fakeappid.hpp"
 #include "feats/ticket.hpp"
+#include "feats/manifest.hpp"
+#include "feats/depotkey.hpp"
+#include "feats/package.hpp"
+#include "feats/requestcode.hpp"
+#include "sdk/DepotEntry.hpp"
+#include "sdk/PackageInfo.hpp"
+#include "sdk/RawNetPacket.hpp"
+#include "ownership.hpp"
+#include "lua/LuaLoader.hpp"
 
 #include "api.hpp"
 #include "config.hpp"
@@ -335,6 +344,25 @@ static uint32_t hkClientUnifiedServiceTransport_SendAndRecvMsg(CClientUnifiedSer
 
 static void hkCMInterface_RecvPkt(CCMInterface* pCMInterface, CNetPacket* pNetPacket)
 {
+	if (pNetPacket)
+	{
+		const uint8_t* injData = nullptr;
+		uint32_t injSize = 0;
+		bool inject = false;
+		try { inject = RequestCode::nextInjection(injData, injSize); } catch (...) { inject = false; }
+		if (inject && injData && injSize)
+		{
+			auto* raw = reinterpret_cast<RawCNetPacket*>(pNetPacket);
+			uint8_t* origData = raw->m_pubData;
+			uint32_t origSize = raw->m_cubData;
+			raw->m_pubData = const_cast<uint8_t*>(injData);
+			raw->m_cubData = injSize;
+			LOG_DEBUG("RequestCode: injecting fabricated %u bytes via RawCNetPacket carrier\n", injSize);
+			Hooks::CCMInterface_RecvPkt->tramp.fn(pCMInterface, pNetPacket);
+			raw->m_pubData = origData;
+			raw->m_cubData = origSize;
+		}
+	}
 	LOG_DEBUG
 	(
 		"RecvPkt with CMInterface at %p %s -> 0x%x\n",
@@ -543,6 +571,16 @@ static AppId_t hkSteamEngine_SetAppIdForCurrentPipe(CSteamEngine* pSteamEngine, 
 
 static bool hkWebSocketConnection_BBuildAndAsyncSendFrame(CWebSocketConnection* pWebSocketConnection, EWebSocketConnectionSendType type, void* pData, uint32_t dataSize)
 {
+	if (type == k_EWebSocketConnectionSendRaw && pData && dataSize)
+	{
+		bool drop = false;
+		try { drop = RequestCode::onSendFrame(static_cast<const uint8_t*>(pData), dataSize); } catch (...) { drop = false; }
+		if (drop)
+		{
+			LOG_DEBUG("RequestCode: dropped GetManifestRequestCode frame (%u bytes) at BBuildAndAsyncSendFrame\n", dataSize);
+			return true;
+		}
+	}
 	if (type == k_EWebSocketConnectionSendRaw)
 	{
 		//Freeing pData royally fucks up memory since
@@ -779,7 +817,75 @@ static bool hkUserAppManager_BuildDepotDependency
 
 	Apps::buildDepotDependency(depots, sharedDepots);
 
+	if (depots)
+		Manifest::patchDepotInfo(reinterpret_cast<CUtlVector<DepotEntry>*>(depots));
+	if (sharedDepots)
+		Manifest::patchDepotInfo(reinterpret_cast<CUtlVector<DepotEntry>*>(sharedDepots));
+
 	return success;
+}
+
+static int hkLoadDepotDecryptionKey(void* pObject, uint32_t foo, char* KeyName, char* Key, uint32_t KeySize)
+{
+	if (KeyName)
+	{
+		const char* tag = strstr(KeyName, "\\DecryptionKey");
+		if (tag && tag > KeyName)
+		{
+			const char* idStart = tag;
+			while (idStart > KeyName && idStart[-1] != '\\')
+				--idStart;
+			uint32_t depotId = 0;
+			const char* p = idStart;
+			while (p < tag && *p >= '0' && *p <= '9')
+			{
+				depotId = depotId * 10 + (uint32_t)(*p - '0');
+				++p;
+			}
+			if (p == tag && depotId != 0)
+			{
+				const int written = DepotKey::provideKey(depotId, Key, KeySize);
+				if (written > 0)
+					return written;
+			}
+		}
+	}
+	return Hooks::LoadDepotDecryptionKey->tramp.fn(pObject, foo, KeyName, Key, KeySize);
+}
+
+static void* hkCCMConnection_RecvPkt(void* pThis, CNetPacket* pPacket)
+{
+	if (pPacket)
+	{
+		const uint8_t* injData = nullptr;
+		uint32_t injSize = 0;
+		bool inject = false;
+		try { inject = RequestCode::nextInjection(injData, injSize); } catch (...) { inject = false; }
+		if (inject && injData && injSize)
+		{
+			auto* raw = reinterpret_cast<RawCNetPacket*>(pPacket);
+			uint8_t* origData = raw->m_pubData;
+			uint32_t origSize = raw->m_cubData;
+			raw->m_pubData = const_cast<uint8_t*>(injData);
+			raw->m_cubData = injSize;
+			LOG_DEBUG("RequestCode: injecting via CCMConnection %u bytes\n", injSize);
+			Hooks::CCMConnection_RecvPkt->tramp.fn(pThis, pPacket);
+			raw->m_pubData = origData;
+			raw->m_cubData = origSize;
+		}
+	}
+	return Hooks::CCMConnection_RecvPkt->tramp.fn(pThis, pPacket);
+}
+
+static void* hkCPackageInfo_GetPackageInfo(void* pThis, uint32_t pkgId, uint64_t token)
+{
+	void* ret = Hooks::CPackageInfo_GetPackageInfo->tramp.fn(pThis, pkgId, token);
+	if (pkgId == 0 && ret && PackageInfo::status(ret) == 0)
+	{
+		Package::setInjectedPackage(ret);
+		Package::pumpOnSteamThread("CPackageInfo::GetPackageInfo");
+	}
+	return ret;
 }
 
 static bool hkClientAppManager_BCanRemotePlayTogether(IClientAppManager* pAppManager, AppId_t appId)
@@ -1073,6 +1179,13 @@ static uint32_t hkClientUser_GetAppOwnershipTicketExtendedData
 		pSigSize
    );
 
+	const uint32_t sizeOverride = Ticket::getTicketOwnershipExtendedData(appId, pTicket, size, pOffAppId, pOffSteamId, pOffSig, pSigSize, pClientUser);
+	if (sizeOverride)
+	{
+		LOG_ONCE("%s(%u)->%u (spliced)\n", Hooks::IClientUser_GetAppOwnershipTicketExtendedData->name.c_str(), appId, sizeOverride);
+		return sizeOverride;
+	}
+
 	LOG_ONCE("%s(%u)->%u\n", Hooks::IClientUser_GetAppOwnershipTicketExtendedData->name.c_str(), appId, size);
 
 	if (size)
@@ -1353,6 +1466,13 @@ namespace Hooks
 
 	//steamui.so
 	DetourHook<CGameInfoDialog_ServerResponded_t>* CGameInfoDialog_ServerResponded = nullptr;
+
+	DetourHook<LoadDepotDecryptionKey_t>* LoadDepotDecryptionKey = nullptr;
+	DetourHook<CCMConnection_RecvPkt_t>* CCMConnection_RecvPkt = nullptr;
+	DetourHook<CPackageInfo_GetPackageInfo_t>* CPackageInfo_GetPackageInfo = nullptr;
+	MarkLicenseAsChanged_t oMarkLicenseAsChanged = nullptr;
+	ProcessPendingLicenseUpdates_t oProcessPendingLicenseUpdates = nullptr;
+	CUtlMemory_Grow_t oCUtlMemoryGrow = nullptr;
 }
 
 bool Hooks::init()
@@ -1459,7 +1579,16 @@ bool Hooks::init()
 
 	CWebSocketConnection_BBuildAndAsyncSendFrame = new DetourHook(Patterns::CWebSocketConnection::BBuildAndAsyncSendFrame, hkWebSocketConnection_BBuildAndAsyncSendFrame);
 
+	LoadDepotDecryptionKey = new DetourHook(Patterns::LoadDepotDecryptionKey, hkLoadDepotDecryptionKey);
+	CCMConnection_RecvPkt = new DetourHook(Patterns::CCMConnection::RecvPkt, hkCCMConnection_RecvPkt);
+	CPackageInfo_GetPackageInfo = new DetourHook(Patterns::CPackageInfo::GetPackageInfo, hkCPackageInfo_GetPackageInfo);
+	oMarkLicenseAsChanged = reinterpret_cast<MarkLicenseAsChanged_t>(Patterns::CUser::MarkLicenseAsChanged.address);
+	oProcessPendingLicenseUpdates = reinterpret_cast<ProcessPendingLicenseUpdates_t>(Patterns::CUser::ProcessPendingLicenseUpdates.address);
+	oCUtlMemoryGrow = reinterpret_cast<CUtlMemory_Grow_t>(Patterns::CUtlMemory::Grow.address);
+
 	CGameInfoDialog_ServerResponded = new DetourHook(VFTIndexes::CGameInfoDialog::ServerResponded, hkCGameInfoDialog_ServerResponded);
+
+	LuaLoader::setOnDepotsChanged(&Package::notifyLicenseChanged);
 
 	setupAll();
 	placeAll();

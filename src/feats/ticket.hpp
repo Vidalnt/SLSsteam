@@ -37,6 +37,7 @@ public:
 	void launchApp(const AppId_t appId);
 	void getEncryptedAppTicket(const AppId_t appId);
 	void getTicketOwnershipExtendedData(const AppId_t appId);
+	uint32_t getTicketOwnershipExtendedData(uint32_t appId, void* pTicket, uint32_t ticketSize, uint32_t* pOffAppId, uint32_t* pOffSteamId, uint32_t* pOffSig, uint32_t* pSigSize, void* pClientUser);
 
 	std::filesystem::path getEncryptedTicketPath(const AppId_t appId);
 	SavedTicket* getCachedEncryptedTicket(const AppId_t appId);

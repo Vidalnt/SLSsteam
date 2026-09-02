@@ -224,6 +224,21 @@ namespace Hooks
 
 	extern DetourHook<IClientRemoteStorage_IsCloudEnabledForApp_t>* IClientRemoteStorage_IsCloudEnabledForApp;
 
+	typedef int(*LoadDepotDecryptionKey_t)(void*, uint32_t, char*, char*, uint32_t);
+	typedef void*(*CCMConnection_RecvPkt_t)(void*, CNetPacket*);
+	typedef void*(*CPackageInfo_GetPackageInfo_t)(void*, uint32_t, uint64_t);
+	typedef void(*MarkLicenseAsChanged_t)(void*, uint32_t, int);
+	typedef bool(*ProcessPendingLicenseUpdates_t)(void*);
+	typedef bool(*CUtlMemory_Grow_t)(void*, uint32_t);
+
+	extern DetourHook<LoadDepotDecryptionKey_t>* LoadDepotDecryptionKey;
+	extern DetourHook<CCMConnection_RecvPkt_t>* CCMConnection_RecvPkt;
+	extern DetourHook<CPackageInfo_GetPackageInfo_t>* CPackageInfo_GetPackageInfo;
+
+	extern MarkLicenseAsChanged_t oMarkLicenseAsChanged;
+	extern ProcessPendingLicenseUpdates_t oProcessPendingLicenseUpdates;
+	extern CUtlMemory_Grow_t oCUtlMemoryGrow;
+
 	typedef unsigned int(*IClientApps_GetDLCCount_t)(IClientApps*, AppId_t);
 	typedef bool(*IClientApps_GetDLCDataByIndex_t)(IClientApps*, AppId_t, int, AppId_t*, bool*, char*, size_t);
 

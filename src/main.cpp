@@ -7,6 +7,7 @@
 #include "globals.hpp"
 #include "hooks.hpp"
 #include "lua.hpp"
+#include "lua/LuaLoader.hpp"
 #include "log.hpp"
 #include "memhlp.hpp"
 #include "patterns.hpp"
@@ -207,6 +208,8 @@ static void load()
 		LOG_NOTIFYERROR("Failed to find all patterns! Aborting...");
 		return;
 	}
+
+	LuaLoader::init();
 
 	if (!Hooks::init())
 	{

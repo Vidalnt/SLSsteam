@@ -3,16 +3,31 @@
 
 #Force g++ cause clang crashes on some hooks
 CXX := g++
+CC := gcc
+include deps.mk
+DEFAULT_LUA_A := obj/liblua5.4.a
+LUA_DIR     ?= third_party/lua
+LUA_STAMP   ?= $(LUA_DIR)/.fetched-$(LUA_VER)
+LUA_INCLUDE ?= $(LUA_DIR)
+LUA_A       ?= $(DEFAULT_LUA_A)
+lua_names  := lapi lauxlib lbaselib lcode lcorolib lctype ldblib ldebug ldo \
+              ldump lfunc lgc linit liolib llex lmathlib lmem loadlib lobject \
+              lopcodes loslib lparser lstate lstring lstrlib ltable ltablib ltm \
+              lundump lutf8lib lvm lzio
+lua_objs   := $(lua_names:%=obj/luavendor/%.o)
 
-libs := $(wildcard lib/*.a)
+
+libs := $(filter-out lib/libluajit.a,$(wildcard lib/*.a))
 srcs := $(shell find src/ -type f -iname "*.cpp")
 
 CXXFLAGS := -O3 -flto=auto -fPIC -m32 -std=c++20 -Wall -Wextra -Wpedantic -Wno-error=format-security -D_GLIBCXX_USE_CXX11_ABI=0
+CXXFLAGS += -I$(LUA_INCLUDE)
 CXXFLAGS += -floop-block -fgraphite-identity -floop-parallelize-all -pipe -fopenmp -fomit-frame-pointer
 
 LDFLAGS := -shared -Wl,--no-undefined
 LDFLAGS += $(shell pkg-config --libs "openssl")
 LDFLAGS += $(shell pkg-config --libs "libcurl")
+LDFLAGS += -ldl
 
 JOBS := $(shell nproc)
 
@@ -62,7 +77,25 @@ link-bins:
 	-test -f "$(SLSSTEAMSO)" && ln -f "$(SLSSTEAMSO)" "bin/SLSsteam.so"
 	-test -f "tools/library-inject/library-inject.so" && ln -f "tools/library-inject/library-inject.so" "bin/library-inject.so"
 
-$(SLSSTEAMSO): $(objs) $(libs)
+$(LUA_STAMP):
+	@mkdir -p $(LUA_DIR)
+	curl -fsSL "https://www.lua.org/ftp/lua-$(LUA_VER).tar.gz" -o "$(LUA_DIR)/lua.tar.gz"
+	printf '%s  %s\n' "$(LUA_SHA256)" "$(LUA_DIR)/lua.tar.gz" | sha256sum -c -
+	tar xzf "$(LUA_DIR)/lua.tar.gz" -C "$(LUA_DIR)" --strip-components=2 "lua-$(LUA_VER)/src"
+	rm -f "$(LUA_DIR)/lua.tar.gz" "$(LUA_DIR)/lua.c" "$(LUA_DIR)/luac.c"
+	touch "$@"
+
+obj/luavendor/%.o: $(LUA_DIR)/%.c | $(LUA_STAMP)
+	@mkdir -p $(dir $@)
+	$(CC) -m32 -fPIC -O2 -DLUA_USE_LINUX -I$(LUA_DIR) -c $< -o $@
+
+$(DEFAULT_LUA_A): $(lua_objs)
+	@mkdir -p $(dir $@)
+	ar rcs $@ $^
+
+$(objs): | $(LUA_STAMP)
+
+$(SLSSTEAMSO): $(objs) $(LUA_A) $(libs)
 	@mkdir -p bin
 	$(CXX) $(CXXFLAGS) $^ -o $(SLSSTEAMSO) $(LDFLAGS)
 	$(MAKE) link-bins
