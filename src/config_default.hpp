@@ -165,4 +165,13 @@ LogLevels: 0xff
 DumpClientInterfaces: no
 
 #Logs all calls to Steamworks (this makes the logfile huge! Only useful for debugging/analyzing
-ExtendedLogging: no)";
+ExtendedLogging: no
+
+#Manifest file resolution for unowned depots.
+#Providers: ordered request-code chain (default: opensteamtool -> wudrm -> steamrun).
+#  A single entry is strict (no fallback). Example: Providers: [wudrm]
+#Manifest:
+#  Providers: [opensteamtool, wudrm, steamrun]
+#  TimeoutConnectMs: 5000
+#  TimeoutTotalMs: 10000
+#  ReuseConnection: yes)";

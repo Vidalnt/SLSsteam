@@ -206,8 +206,15 @@ bool CConfig::loadSettings(const bool firstLoad, const bool silent)
 	steamIdOverride = getMap<AppId_t, uint64_t>(rootNode, "SteamIdOverride");
 	launchOptions = getMap<AppId_t, std::string>(rootNode, "LaunchOptions");
 
-	setAdditionalApps(getList<AppId_t>(rootNode, "AdditionalApps"), firstLoad);
-	yamlAddedAppIds = addedAppIds.copy();
+	// addedAppIds is defined as yaml ∪ lua, so the delta computation must see
+	// the live lua set too. Otherwise every yaml reload would report all lua
+	// apps as removed right before reconcileIntoConfig() restores them.
+	const auto yamlAdditional = getList<AppId_t>(rootNode, "AdditionalApps");
+	auto effectiveAdditional = yamlAdditional;
+	for (const auto id : LuaLoader::ownedAppIdsSnapshot())
+		effectiveAdditional.insert(id);
+	setAdditionalApps(effectiveAdditional, firstLoad);
+	yamlAddedAppIds = yamlAdditional;
 	yamlAppTokens = appTokens.copy();
 
 	packageInjection = getSetting<bool>(rootNode, "PackageInjection", true);

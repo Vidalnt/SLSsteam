@@ -52,26 +52,26 @@ static bool parseSteamRunJson(std::string_view body, uint64_t& out)
 
 using Parser = bool (*)(std::string_view body, uint64_t& out);
 
-struct Provider
-{
-	const char* name;
-	const char* urlTemplate;
-	Parser parse;
-};
+	struct Provider
+	{
+		const char* name;
+		const char* urlTemplate;
+		Parser parse;
+	};
 
-static const Provider kProviders[] = {
-	{ "opensteamtool", "https://manifest.opensteamtool.com/{gid}", parsePlainUint },
-	{ "wudrm", "http://gmrc.wudrm.com/manifest/{gid}", parsePlainUint },
-	{ "steamrun", "https://manifest.steam.run/api/manifest/{gid}", parseSteamRunJson },
-};
+	static const Provider kProviders[] = {
+		{ "opensteamtool", "https://manifest.opensteamtool.com/{gid}", parsePlainUint },
+		{ "wudrm", "http://gmrc.wudrm.com/manifest/{gid}", parsePlainUint },
+		{ "steamrun", "https://manifest.steam.run/api/manifest/{gid}", parseSteamRunJson },
+	};
 
-static std::mutex g_chainMtx;
-static std::vector<const Provider*> g_chain = { &kProviders[0], &kProviders[1], &kProviders[2] };
+	static std::mutex g_chainMtx;
+	static std::vector<const Provider*> g_chain = { &kProviders[0], &kProviders[1], &kProviders[2] };
 
-static std::vector<const Provider*> defaultChain()
-{
-	return { &kProviders[0], &kProviders[1], &kProviders[2] };
-}
+	static std::vector<const Provider*> defaultChain()
+	{
+		return { &kProviders[0], &kProviders[1], &kProviders[2] };
+	}
 
 static const Provider* findProvider(const std::string& name)
 {
@@ -173,12 +173,12 @@ static std::string buildUrl(const char* tmpl, uint64_t gid)
 	return url;
 }
 
-static bool tryProvider(const Provider& p, uint64_t gid, uint64_t& outCode)
-{
-	const std::string url = buildUrl(p.urlTemplate, gid);
-	const uint32_t timeoutMs = g_config.manifestTimeoutTotalMs.copy() ? g_config.manifestTimeoutTotalMs.copy() : 10000;
-	std::string body;
-	int rc = Curl::downloadString(url.c_str(), body, timeoutMs);
+	static bool tryProvider(const Provider& p, uint64_t gid, uint64_t& outCode)
+	{
+		const std::string url = buildUrl(p.urlTemplate, gid);
+		const uint32_t timeoutMs = g_config.manifestTimeoutTotalMs.copy() ? g_config.manifestTimeoutTotalMs.copy() : 10000;
+		std::string body;
+		int rc = Curl::downloadString(url.c_str(), body, timeoutMs);
 	long status = rc == 0 ? 200 : 0;
 	LOG_INFO("ManifestProvider: provider='%s' gid=%llu curlrc=%d status=%ld\n", p.name, static_cast<unsigned long long>(gid), rc, status);
 	if (rc != 0)
