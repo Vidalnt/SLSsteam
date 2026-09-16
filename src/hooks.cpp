@@ -679,8 +679,11 @@ static uint32_t hkSteamMatchmakingServers_RequestInternetServerList(void* pSteam
 __attribute__((hot))
 static uint32_t hkUser_CheckAppOwnership(CUser* pUser, AppId_t appId, AppOwnershipInfo_t* pOwnershipInfo)
 {
+	Package::setCUser(pUser);
 	LOG_TRACE("Calling tramp\n");
 	const uint32_t ret = Hooks::CUser_CheckAppOwnership->tramp.fn(pUser, appId, pOwnershipInfo);
+
+	Package::pumpOnSteamThread("CUser::CheckAppOwnership");
 
 	//Do not log pOwnershipInfo because it gets deleted very quickly, so it's pretty much useless in the logs
 	LOG_ONCE
@@ -692,6 +695,17 @@ static uint32_t hkUser_CheckAppOwnership(CUser* pUser, AppId_t appId, AppOwnersh
 		appId,
 		ret
 	);
+
+	if (pOwnershipInfo && Ownership::isControlledApp(appId))
+	{
+		const bool genuine = ret && pOwnershipInfo->numLicenses > 1;
+		Ownership::setGenuinelyOwned(appId, genuine);
+		if (genuine)
+		{
+			pOwnershipInfo->releaseState = EAppReleaseState::Released;
+			return ret;
+		}
+	}
 
 	if (Apps::checkAppOwnership(appId, pOwnershipInfo) || DLC::checkAppOwnership(appId, pOwnershipInfo))
 	{
@@ -705,6 +719,9 @@ static uint32_t hkUser_GetSubscribedApps(CUser* pUser, AppId_t* pAppList, uint32
 {
 	LOG_TRACE("Calling tramp\n");
 	uint32_t count = Hooks::CUser_GetSubscribedApps->tramp.fn(pUser, pAppList, size, a3);
+
+	Package::setCUser(pUser);
+	Package::pumpOnSteamThread("CUser::GetSubscribedApps");
 
 	Apps::getSubscribedApps(pAppList, size, count);
 

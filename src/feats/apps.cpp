@@ -2,6 +2,7 @@
 
 #include "../config.hpp"
 #include "../globals.hpp"
+#include "../ownership.hpp"
 #include "../utils.hpp"
 
 #include "fakeappid.hpp"
@@ -20,6 +21,20 @@ std::unordered_set<AppId_t> Apps::privateApps = std::unordered_set<AppId_t>();
 
 std::mutex Apps::pendingLicenseChangesMutex;
 std::unordered_set<AppId_t> Apps::pendingLicenseChanges = std::unordered_set<AppId_t>();
+
+bool Apps::isGenuinelySubscribed(const AppId_t appId)
+{
+	// CUser::isSubscribed can observe package-injected ownership for currently
+	// controlled apps, so trust only the genuine-owned cache populated from
+	// Steam's original ownership path while the app is controlled.
+	if (Ownership::isControlledApp(appId))
+	{
+		return Ownership::isGenuinelyOwned(appId);
+	}
+
+	auto* user = g_pSteamEngine ? g_pSteamEngine->getUser(0) : nullptr;
+	return user && user->isSubscribed(appId);
+}
 
 bool Apps::unlockApp(const AppId_t appId, AppOwnershipInfo_t* info, const CSteamId& ownerId)
 {
@@ -438,12 +453,14 @@ bool Apps::shouldDisableCloud(const AppId_t appId)
 		return false;
 	}
 
-	return !g_pSteamEngine->getUser(0)->isSubscribed(appId);
+	// Disable cloud for fake-owned/non-owned apps. CUser::isSubscribed can see
+	// package-injected ownership, so route through the genuine-owned cache.
+	return !isGenuinelySubscribed(appId);
 }
 
 bool Apps::shouldDisableCDKey(const AppId_t appId)
 {
-	return !g_pSteamEngine->getUser(0)->isSubscribed(appId);
+	return !isGenuinelySubscribed(appId);
 }
 
 bool Apps::shouldDisableUpdates(const AppId_t appId)
@@ -453,8 +470,11 @@ bool Apps::shouldDisableUpdates(const AppId_t appId)
 		return false;
 	}
 
-	//Using AdditionalApps here aswell so users can manually block updates
-	return g_config.isAddedAppId(appId) || !g_pSteamEngine->getUser(0)->isSubscribed(appId);
+	// YAML-only AdditionalApps are manual unlock/block entries and must not download.
+	// Lua addappid entries may include depot keys/manifests, so leave them eligible
+	// for the download path added by the Lua layer.
+	return Ownership::isYamlOnlyAdditionalApp(appId)
+		|| (!Ownership::isControlledApp(appId) && !isGenuinelySubscribed(appId));
 }
 
 void Apps::sendAndRecvLastPlayedTimes(const char* name, CPlayer_GetLastPlayedTimes_Response* recv)

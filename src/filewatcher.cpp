@@ -34,6 +34,12 @@ void* CFileWatcher::watchLoop(void* args)
 
 		if (size == -1)
 		{
+			if (errno == EINTR)
+			{
+				LOG_DEBUG("Filewatcher %u got interrupted!\n", watcher->notifyFd);
+				continue;
+			}
+
 			LOG_ERROR("Failed to read from FileWatcher %i (%s)!\n", watcher->notifyFd, strerror(errno));
 			break;
 		}
@@ -161,11 +167,12 @@ bool CFileWatcher::start()
 {
 	try
 	{
-		watchThread = std::thread(&watchLoop, this);
 		running = true;
+		watchThread = std::thread(&watchLoop, this);
 	}
 	catch (...)
 	{
+		running = false;
 		LOG_ERROR("Failed to start watchThread!\n");
 	}
 

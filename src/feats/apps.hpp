@@ -29,6 +29,7 @@ namespace Apps
 
 	void postAppLicensesChanged(const std::unordered_set<AppId_t>& apps);
 
+	bool isGenuinelySubscribed(const AppId_t appId);
 	bool shouldDisableCloud(const AppId_t appId);
 	bool shouldDisableCDKey(const AppId_t appId);
 	bool shouldDisableUpdates(const AppId_t appId);
