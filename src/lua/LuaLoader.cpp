@@ -886,6 +886,7 @@ namespace LuaLoader {
                 parseLuaFile(path);  // re-add (parseLuaFile sets/clears g_currentFile itself)
             }
             rebuildGlobalState();
+            LOG_INFO("LuaLoader: hot-reload %s (%s, %zu owned ids)\n", path.c_str(), removed ? "removed" : "reloaded", ownedAppIds.size());
         }
         // reconcileIntoConfig locks g_fileMtx - call it AFTER releasing the locks
         // above (std::mutex is non-recursive; double-lock would deadlock).
@@ -982,7 +983,9 @@ namespace LuaLoader {
         LOG_INFO("LuaLoader: init complete\n");
 
         // Hot-reload: watch each scanned lua dir for .lua add/edit/remove.
-        g_luaWatcher = new CFileWatcher(onLuaFileChanged);
+        // No IN_CREATE: a new file fires CREATE (empty/partial) then CLOSE_WRITE;
+        // listening to both would parse it twice. CLOSE_WRITE and MOVED_TO cover saves.
+        g_luaWatcher = new CFileWatcher(onLuaFileChanged, IN_CLOSE_WRITE | IN_DELETE | IN_MOVED_TO | IN_MOVED_FROM);
         for (const auto& dir : g_luaDirs) {
             g_luaWatcher->addDirectory(dir.c_str());
         }
@@ -999,6 +1002,12 @@ namespace LuaLoader {
     bool hasOwnedAppId(uint32_t appId) {
         std::lock_guard<std::mutex> lock(g_luaMtx);
         return ownedAppIds.find(appId) != ownedAppIds.end();
+    }
+
+    std::unordered_set<uint32_t> ownedAppIdsSnapshot() {
+        std::lock_guard<std::mutex> lock(g_luaMtx);
+        if (!g_lua) return {};
+        return ownedAppIds;
     }
 
     std::vector<uint8_t> getKey(uint32_t depotId) {

@@ -66,6 +66,10 @@ namespace LuaLoader {
     // Used to let Lua take precedence over yaml AdditionalApps for download policy.
     bool hasOwnedAppId(uint32_t appId);
 
+    // Snapshot of all owned ids under the lua lock. Used by CConfig so a
+    // yaml hot-reload does not mistake live lua apps for removed ones.
+    std::unordered_set<uint32_t> ownedAppIdsSnapshot();
+
     // ── Query APIs ────────────────────────────────────────────────────────────
 
     // Returns the 32-byte depot decryption key for depotId, or an empty vector
