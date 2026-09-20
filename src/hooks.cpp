@@ -365,10 +365,13 @@ static void hkCMInterface_RecvPkt(CCMInterface* pCMInterface, CNetPacket* pNetPa
 	}
 	LOG_DEBUG
 	(
-		"RecvPkt with CMInterface at %p %s -> 0x%x\n",
+		"RecvPkt with CMInterface at %p %s -> 0x%x (refs %u, body %p, originalBody %p)\n",
 		reinterpret_cast<void*>(pCMInterface),
 		pNetPacket->getProtoBufTypeName().c_str(),
-		pNetPacket->getType()
+		pNetPacket->getType(),
+		pNetPacket->refs,
+		reinterpret_cast<void*>(pNetPacket->body),
+		reinterpret_cast<void*>(pNetPacket->originalBody)
 	);
 
 	if (pNetPacket->isValid() && pNetPacket->isProtoBuf())
@@ -528,9 +531,10 @@ static uint32_t hkSteamEngine_ProcessIPCFrame(CSteamEngine* pSteamEngine, HSteam
 	{
 		const auto serverPipe = g_pSteamEngine->getServerPipe(hPipe);
 		auto& proc = g_processMap[serverPipe->pipeHandle];
-		proc.init(serverPipe->pid, serverPipe->pipeHandle);
-
-		Ticket::connectPipe(hPipe);
+		if (proc.init(serverPipe->pid, serverPipe->pipeHandle))
+		{
+			Ticket::connectPipe(hPipe);
+		}
 	}
 
 	if (cmd == EIPCCmd::ClosePipe)
