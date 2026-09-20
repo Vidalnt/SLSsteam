@@ -8,7 +8,6 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
-#include <regex>
 #include <string>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -185,18 +184,22 @@ std::string Utils::getFileSHA256(const char *filePath)
 	return sha256.str();
 }
 
-std::vector<std::string> Utils::strsplit(const std::string& str, const char *delimeter)
+std::vector<std::string> Utils::strsplit(char *str, const char *delimeter)
 {
 	auto splits = std::vector<std::string>();
 
-	std::regex delimeterRe(delimeter);
-	auto it = std::sregex_token_iterator(str.begin(), str.end(), delimeterRe, -1);
-	std::sregex_token_iterator end;
+	char* split = strtok(str, delimeter);
+	splits.emplace(splits.end(), std::string(split));
 
-	while (it != end)
+	while(split)
 	{
-		splits.emplace_back(*it);
-		it++;
+		split = strtok(nullptr, delimeter);
+		if (!split)
+		{
+			break;
+		}
+
+		splits.emplace(splits.end(), std::string(split));
 	}
 
 	return splits;
