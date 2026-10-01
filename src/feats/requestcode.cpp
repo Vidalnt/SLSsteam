@@ -116,7 +116,8 @@ namespace RequestCode {
 		}
 		if(!parsed){
 			Pending p; p.jobId=hdr.jobid_source(); p.gid=0;
-			p.future = std::async(std::launch::deferred, []()->uint64_t{ return 0; }).share();
+			std::promise<uint64_t> ready; ready.set_value(0);
+			p.future = ready.get_future().share();
 			p.reqHdr.assign(pHdr,pHdr+cbHdr);
 			{ std::lock_guard<std::mutex> lk(g_mutex); g_pending.push_back(std::move(p)); g_pendingCount.store(g_pending.size(), std::memory_order_release); }
 			LOG_DEBUG("RequestCode: drop+fabricate unparsable jobid=%llu\n", (unsigned long long)hdr.jobid_source());
