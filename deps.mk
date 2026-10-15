@@ -13,5 +13,5 @@
 # spaces in VALUE. The nix-side parser matches exactly this shape, so keep new
 # entries in the same form (plain assignments, comments start with '#').
 
-LUA_VER    := 5.4.8
-LUA_SHA256 := 4f18ddae154e793e46eeab727c59ef1c0c0c2b744e7b94219710d76f530629ae
+LUA_VER    := 5.4.9
+LUA_SHA256 := 2335b6c582a52654f94612bf10d2f4672805d05329aa6568b1d8cd9e5c6fb8e6
