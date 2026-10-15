@@ -14,11 +14,14 @@ namespace Steam
 
 bool Steam::init()
 {
-	void* tier0 = dlopen("libtier0_s.so", RTLD_NOW);
+	void* tier0 = dlmopen(LM_ID_BASE, "libtier0_s.so", RTLD_NOW | RTLD_LOCAL);
 	if (!tier0)
 	{
 		return false;
 	}
+
+	//handle points at the modules address (potentially more)
+	LOG_DEBUG("libtier0_s.so loaded at %p\n", *reinterpret_cast<void**>(tier0));
 
 	Plat_Alloc = reinterpret_cast<Plat_Alloc_t>(dlsym(tier0, "Plat_Alloc"));
 	Plat_Free = reinterpret_cast<Plat_Free_t>(dlsym(tier0, "Plat_Free"));

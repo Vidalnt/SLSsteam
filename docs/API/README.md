@@ -15,7 +15,6 @@ uninstall|appId : Uninstalls appId
 
 #### Compatibility Manager
 
-dumpcompat|appId : Lists all available compatibility tools for appId \
 getcompat|appId : Lists the current compatibility tool for appId \
 setcompat|appId\[|tool-name\] : Set's or clears the compatibility tool for appId
 

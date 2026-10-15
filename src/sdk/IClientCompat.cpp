@@ -1,8 +1,5 @@
 #include "IClientCompat.hpp"
 
-#include "CUtl.hpp"
-#include "steam.hpp"
-
 #include "../memhlp.hpp"
 #include "../vftableinfo.hpp"
 
@@ -24,17 +21,6 @@ const char* IClientCompat::getDisplayName(const char* name)
 		VFTIndexes::IClientCompat::GetCompatToolDisplayName.index,
 		this,
 		name
-	);
-}
-
-void IClientCompat::getCompatToolsForApp(const AppId_t appId, CUtlVector<CUtlString>* pVecTools)
-{
-	MemHlp::callVFunc<void(*)(void*, CUtlVector<CUtlString>*, AppId_t)>
-	(
-		VFTIndexes::IClientCompat::GetAvailableCompatToolsForApp.index,
-		this,
-		pVecTools,
-		appId
 	);
 }
 
@@ -60,5 +46,3 @@ void IClientCompat::specifyCompatTool(const AppId_t appId, const char* name, con
 		priority
 	);
 }
-
-IClientCompat* g_pClientCompat = nullptr;

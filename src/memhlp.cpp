@@ -37,6 +37,66 @@ lm_module_t* MemHlp::getModule(const std::string& name)
 	return moduleMap.at(name).get();
 }
 
+lm_module_t* MemHlp::getModuleByAddress(const lm_address_t address, const bool useCached)
+{
+	static auto mods = std::vector<lm_module_t>();
+
+	if (!useCached)
+	{
+		mods.clear();
+	}
+
+	if (!mods.size())
+	{
+		LM_EnumModules([](lm_module_t* mod, __attribute__((unused)) lm_void_t* args)
+		{
+			mods.emplace_back(*mod);
+			return LM_TRUE;
+		}, nullptr);
+	}
+
+	for (const auto& mod : mods)
+	{
+		if (mod.base < address && mod.end > address)
+		{
+			return getModule(mod.name);
+		}
+	}
+
+	return nullptr;
+}
+
+lm_segment_t MemHlp::getSegmentByAddress(const lm_address_t address, const bool useCached)
+{
+	static auto segs = std::vector<lm_segment_t>();
+
+	if (!useCached)
+	{
+		segs.clear();
+	}
+
+	if (!segs.size())
+	{
+		segs.clear();
+
+		LM_EnumSegments([](lm_segment_t* seg, __attribute__((unused)) lm_void_t* args)
+		{
+			segs.emplace_back(*seg);
+			return LM_TRUE;
+		}, nullptr);
+	}
+
+	for (const auto& seg : segs)
+	{
+		if (seg.base < address && seg.end > address)
+		{
+			return seg;
+		}
+	}
+
+	return lm_segment_t { };
+}
+
 std::vector<int16_t> MemHlp::patternToBytes(const char* pattern)
 {
 	auto bytes = std::vector<int16_t>();
@@ -111,7 +171,7 @@ lm_address_t MemHlp::patternScan(const char* pattern, const lm_module_t& targetM
 
 			if (matches > 1)
 			{
-				LOG_DEBUG("Pattern %s found %i times at 0x%x!\n", pattern, matches, addr);
+				LOG_WARN("Pattern %s found %i times at 0x%x!\n", pattern, matches, addr);
 			}
 		}
 	}
@@ -125,7 +185,7 @@ lm_address_t MemHlp::searchSignature(const char* name, const char* signature, co
 	lm_address_t address = patternScan(signature, module);
 	if (address == LM_ADDRESS_BAD)
 	{
-		LOG_DEBUG("Unable to find signature for %s!\n", name);
+		LOG_ERROR("Unable to find signature for %s!\n", name);
 	}
 	else
 	{
@@ -164,7 +224,7 @@ lm_address_t MemHlp::getJmpTarget(const lm_address_t address)
 	lm_inst_t inst;
 	if (!LM_Disassemble(address, &inst)) //Should not happen if we land in a code section
 	{
-		LOG_DEBUG("Failed to disassemble code at 0x%x!", address);
+		LOG_ERROR("Failed to disassemble code at 0x%x!", address);
 		return LM_ADDRESS_BAD;
 	}
 
@@ -207,7 +267,7 @@ lm_address_t MemHlp::findPrologue(const lm_address_t address, const std::vector<
 		}
 	}
 
-	LOG_DEBUG("Unable to find prologue after going up 0x%x bytes!\n", scanSize);
+	LOG_ERROR("Unable to find prologue after going up 0x%x bytes!\n", scanSize);
 	return LM_ADDRESS_BAD;
 }
 
@@ -223,7 +283,7 @@ bool MemHlp::fixPICThunkCall(const char* name, const lm_address_t fn, const lm_a
 
 		if (!LM_Disassemble(startAddress, &inst))
 		{
-			LOG_DEBUG("Unable to dissassemble code at 0x%x\n", tramp + curTrampOffset);
+			LOG_ERROR("Unable to dissassemble code at 0x%x\n", tramp + curTrampOffset);
 			return false;
 		}
 		
@@ -244,7 +304,7 @@ bool MemHlp::fixPICThunkCall(const char* name, const lm_address_t fn, const lm_a
 		{
 			if (!LM_Disassemble(followAddress, &inst))
 			{
-				LOG_DEBUG("Unable to dissassemble code at 0x%x\n", followAddress);
+				LOG_ERROR("Unable to dissassemble code at 0x%x\n", followAddress);
 				return false;
 			}
 
@@ -290,7 +350,7 @@ bool MemHlp::fixPICThunkCall(const char* name, const lm_address_t fn, const lm_a
 
 		if (!LM_Assemble(newInstr, &inst))
 		{
-			LOG_DEBUG("Unable to assemble instruction %s!\n", newInstr);
+			LOG_ERROR("Unable to assemble instruction %s!\n", newInstr);
 			return false;
 		}
 
@@ -358,9 +418,75 @@ std::string MemHlp::hexdump(const void* address, const size_t size)
 
 const char* MemHlp::getTypeName(const void* pClass)
 {
+	constexpr static auto isValid = [](const lm_address_t addr) -> bool
+	{
+		const auto mod = getModuleByAddress(addr);
+		if (!mod)
+		{
+			return false;
+		}
+
+		const auto seg = getSegmentByAddress(addr);
+		return seg.prot & LM_PROT_R;
+	};
+
 	const lm_address_t vft = *reinterpret_cast<const lm_address_t*>(pClass);
+	if (!isValid(vft))
+	{
+		return nullptr;
+	}
+
 	const lm_address_t typeInfo = *reinterpret_cast<const lm_address_t*>(vft - sizeof(lm_address_t));
+	if (!isValid(typeInfo))
+	{
+		return nullptr;
+	}
+
 	const char* name = *reinterpret_cast<const char**>(typeInfo + sizeof(lm_address_t));
+	const lm_segment_t seg = getSegmentByAddress(reinterpret_cast<lm_address_t>(name));
+
+	if (!(seg.prot & LM_PROT_R))
+	{
+		return nullptr;
+	}
 
 	return name;
+}
+
+lm_address_t MemHlp::searchOffsetByTypeName(const void* pClass, const std::string& name)
+{
+	constexpr lm_address_t MAX_OFFSET = 0x10000;
+	lm_address_t offset = LM_ADDRESS_BAD;
+
+	const auto start = std::chrono::system_clock::now();
+
+	for (lm_address_t off = sizeof(off); off <= MAX_OFFSET; off++)
+	{
+		const lm_address_t addr = reinterpret_cast<lm_address_t>(pClass) + off;
+		const char* typeName = getTypeName(reinterpret_cast<void*>(addr));
+
+		if (!typeName)
+		{
+			continue;
+		}
+
+		if (strcmp(typeName, name.c_str()) == 0)
+		{
+			offset = off;
+			break;
+		}
+	}
+
+	if (offset == LM_ADDRESS_BAD)
+	{
+		LOG_ERROR("Failed to find offset for %s!\n", name.c_str());
+	}
+	else
+	{
+		const auto end = std::chrono::system_clock::now();
+		const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+		LOG_DEBUG("Found offset for %s 0x%x in %llums\n", name.c_str(), offset, ms);
+	}
+
+	return offset;
 }

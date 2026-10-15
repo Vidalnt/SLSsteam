@@ -69,7 +69,7 @@ bool ForgeTicket::getAppOwnershipTicket(uint32_t appId, AppOwnershipTicket& tick
     // Priority 1: cached ticket (disk+memory). SLSsteam's Ticket::getCachedTicket
     // returns SavedTicket* (nullptr on miss) with CSteamId + std::string.
     // Returns by value in original; adaptation checks pointer + isValid().
-    if (auto* cached = Ticket::getCachedTicket(appId)) {
+    if (auto cached = Ticket::getCachedTicket(appId, Ticket::ETicketType::AppOwnershipTicket)) {
         if (cached->isValid() && cached->ticket.size() >= sizeof(uint32_t)) {
             ticket.data.assign(reinterpret_cast<const uint8_t*>(cached->ticket.data()),
                                reinterpret_cast<const uint8_t*>(cached->ticket.data()) + cached->ticket.size());
@@ -77,7 +77,7 @@ bool ForgeTicket::getAppOwnershipTicket(uint32_t appId, AppOwnershipTicket& tick
             ticket.appIdOffset = kAppTicketAppIdOffset;
             ticket.steamIdOffset = kAppTicketSteamIdOffset;
             // SLSsteam ticket layout: first 4 bytes encode signature offset
-            ticket.signatureOffset = *reinterpret_cast<const uint32_t*>(ticket.data.data());
+            std::memcpy(&ticket.signatureOffset, ticket.data.data(), sizeof(ticket.signatureOffset));
             ticket.signatureSize = kAppTicketSignatureSize;
             return true;
         }

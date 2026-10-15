@@ -6,9 +6,6 @@
 #include <vector>
 
 namespace Package {
-    // True once tryInitFakeLicenseOnce has injected into pkg0 successfully.
-    bool isActive();
-
     // Append appId into vec's spare capacity only (no realloc). Returns false if
     // the vector is full. Caller must hold the package mutex (no internal locking).
     // SLSsteam CUtl layout: vec->mem.base / vec->mem.alloc / vec->size
@@ -22,16 +19,9 @@ namespace Package {
     void setInjectedPackage(void* pkg);
     void setCUser(void* cuser);
 
-    // Read accessor for the cached CUser*.
-    void* getCUser();
-
     // onDepotsChanged callback target (lua FileWatcher thread). Only flags a
     // pending change; the real pkg0 mutation runs on a Steam thread.
     void notifyLicenseChanged();
-
-    // Queue already-reconciled config appId changes for live pkg0 mutation. Safe
-    // from the config FileWatcher thread; drained by pumpOnSteamThread.
-    void queueAppIdChanges(const std::vector<uint32_t>& additions, const std::vector<uint32_t>& removals);
 
     // One-shot: inject the reconciled AdditionalApps set into pkg0 + Mark/Process.
     // Safe to call repeatedly; only runs once when pkg0+CUser captured and

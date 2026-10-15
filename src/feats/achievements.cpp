@@ -20,9 +20,17 @@ std::unordered_map<AppId_t, std::unordered_set<uint64_t>> Achievements::ownerBla
 std::string Achievements::getReviewUrl(const AppId_t appId)
 {
 	std::ostringstream url;
-	url << "https://store.steampowered.com/appreviews/" << appId
-		<< "?json=1&filter=recent&language=all&purchase_type=all&num_per_page="
-		<< g_config.maxSchemaTries.copy();
+
+	url << "https://api.steampowered.com/IUserReviewsService/GetAppReviews/v1/"
+		<< "?appid=" << appId
+		<< "&num_per_page=" << g_config.maxSchemaTries.copy()
+		<< "&filter=1" //k_EUserReviewsAppReviewsFilter_Recent
+		<< "&languages\\[0\\]=all" //Escape brackets, otherwise curl exits with "URL malformed. The syntax was not correct"
+		<< "&day_range=0"
+		<< "&review_type=0" //k_EUserReviewsReviewType_All
+		<< "&purchase_type=1" //k_EUserReviewsPurchaseType_All
+		<< "&filter_offtopic_activity=false"
+		<< "&use_review_quality=false";
 
 	return url.str();
 }
@@ -158,7 +166,7 @@ uint32_t Achievements::sendAndRecvGetPlayerStats
 		return k_EResultNoResult;
 	}
 
-	if (send->has_steamid())
+	if (send->has_steamid() && LuaLoader::hasOwnedAppId(send->appid()))
 	{
 		const uint64_t origSid = send->steamid();
 		const uint64_t donorSid = LuaLoader::getStatSteamId(send->appid());
@@ -248,7 +256,7 @@ uint32_t Achievements::sendAndRecvGetUserStats(CAPIJob* job, CProtoBufMsgBase* s
 		return 0;
 	}
 
-	if (sendBdy->has_steam_id_for_user())
+	if (sendBdy->has_steam_id_for_user() && LuaLoader::hasOwnedAppId(static_cast<uint32_t>(sendBdy->game_id())))
 	{
 		const uint64_t origSid = sendBdy->steam_id_for_user();
 		const uint64_t donorSid = LuaLoader::getStatSteamId(static_cast<uint32_t>(sendBdy->game_id()));

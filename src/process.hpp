@@ -84,7 +84,7 @@ struct Process_t
 	pid_t pid = -1;
 	std::filesystem::path exe = "";
 	std::vector<std::string> cmdLine = { };
-	std::string environ = "";
+	std::unordered_map<std::string, std::string> environ = { };
 
 	AppId_t appId = 0;
 	HSteamPipe pipeHandle = 0x0;

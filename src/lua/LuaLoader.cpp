@@ -235,6 +235,7 @@ namespace LuaLoader {
 
     static void rebuildGlobalState()
     {
+        // Caller holds g_luaMtx (established order: g_luaMtx -> g_fileMtx).
         const std::unordered_set<uint32_t> oldOwned = ownedAppIds;
 
         depotKeys.clear();
@@ -695,6 +696,7 @@ namespace LuaLoader {
     // ∪ the live lua tables, so a lua hot-REMOVAL (unloadFile) actually drops the id
     // from g_config instead of lingering until restart.
     void reconcileIntoConfig() {
+        std::lock_guard<std::mutex> lock(g_luaMtx);
         // Merge lua tables into g_config using dev MTVariable API (copy/set)
         {
             auto yaml = g_config.yamlAddedAppIds.copy();
@@ -714,13 +716,6 @@ namespace LuaLoader {
             g_config.subscriptionTimestamps = cur;
         }
         LOG_INFO("LuaLoader: reconciled %zu owned ids into g_config\n", ownedAppIds.size());
-    }
-
-    // Remove every contribution of `path` and rebuild the folded lua state.
-    // Caller holds g_luaMtx + g_fileMtx.
-    void unloadFile(const std::string& path) {
-        dropFileContribution(path, true);
-        rebuildGlobalState();
     }
 
     std::vector<uint32_t> takePendingAdditions() {
@@ -888,7 +883,7 @@ namespace LuaLoader {
             rebuildGlobalState();
             LOG_INFO("LuaLoader: hot-reload %s (%s, %zu owned ids)\n", path.c_str(), removed ? "removed" : "reloaded", ownedAppIds.size());
         }
-        // reconcileIntoConfig locks g_fileMtx - call it AFTER releasing the locks
+        // reconcileIntoConfig locks g_luaMtx - call it AFTER releasing the locks
         // above (std::mutex is non-recursive; double-lock would deadlock).
         reconcileIntoConfig();
         onDepotsChanged();
@@ -971,7 +966,7 @@ namespace LuaLoader {
 
         // Fold per-file contributions into public lua tables once all priority
         // dirs have been parsed. Later scanned files win on duplicate ids.
-        rebuildGlobalState();
+        { std::lock_guard<std::mutex> lock(g_luaMtx); rebuildGlobalState(); }
 
         // ── Union lua tables into g_config ────────────────────────────────
         reconcileIntoConfig();
@@ -1004,6 +999,11 @@ namespace LuaLoader {
         return ownedAppIds.find(appId) != ownedAppIds.end();
     }
 
+    bool hasDepotKey(uint32_t depotId) {
+        std::lock_guard<std::mutex> lock(g_luaMtx);
+        return depotKeys.find(depotId) != depotKeys.end();
+    }
+
     std::unordered_set<uint32_t> ownedAppIdsSnapshot() {
         std::lock_guard<std::mutex> lock(g_luaMtx);
         if (!g_lua) return {};
@@ -1021,20 +1021,6 @@ namespace LuaLoader {
         std::lock_guard<std::mutex> lock(g_luaMtx);
         auto it = manifestOverrides.find(depotId);
         if (it == manifestOverrides.end()) return std::nullopt;
-        return it->second;
-    }
-
-    std::optional<LuaTicket> getAppTicket(uint32_t appId) {
-        std::lock_guard<std::mutex> lock(g_luaMtx);
-        auto it = appTickets.find(appId);
-        if (it == appTickets.end()) return std::nullopt;
-        return it->second;
-    }
-
-    std::optional<LuaTicket> getEncTicket(uint32_t appId) {
-        std::lock_guard<std::mutex> lock(g_luaMtx);
-        auto it = encTickets.find(appId);
-        if (it == encTickets.end()) return std::nullopt;
         return it->second;
     }
 

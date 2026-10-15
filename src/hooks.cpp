@@ -5,6 +5,7 @@
 #include "feats/dlc.hpp"
 #include "feats/misc.hpp"
 #include "feats/fakeappid.hpp"
+#include "feats/stealth.hpp"
 #include "feats/ticket.hpp"
 #include "feats/manifest.hpp"
 #include "feats/depotkey.hpp"
@@ -268,6 +269,11 @@ static uint32_t hkAPIJob_SendAndRecv(CAPIJob* pAPIJob, CProtoBufMsgBase* send, u
 
 	if (!ret)
 	{
+		ret = Stealth::sendAndRecvStoreUserStats2(send, recv, targetType);
+	}
+
+	if (!ret)
+	{
 		LOG_TRACE("Calling tramp\n");
 		ret = Hooks::CAPIJob_SendAndRecv->tramp.fn(pAPIJob, send, a2, timeOut, recv, targetType);
 	}
@@ -361,6 +367,9 @@ static void hkCMInterface_RecvPkt(CCMInterface* pCMInterface, CNetPacket* pNetPa
 			Hooks::CCMInterface_RecvPkt->tramp.fn(pCMInterface, pNetPacket);
 			raw->m_pubData = origData;
 			raw->m_cubData = origSize;
+			// Fabricated packet delivered; it must not run the live recv
+			// chain (Misc/Ticket/Stealth) nor hit the tramp a second time.
+			return;
 		}
 	}
 	LOG_DEBUG
@@ -407,16 +416,24 @@ static void hkCMInterface_RecvPkt(CCMInterface* pCMInterface, CNetPacket* pNetPa
 			return;
 		}
 
-		Lua::fireCallback(Lua::Callbacks::Network_RecvPkt, pNetPacket);
+		Lua::fireCallback(Lua::Callbacks::Network_RecvPkt, pNetPacket); // no-op until LuaLoader gains a network-event API
 
 		Misc::recvMsg(pNetPacket);
 		Ticket::recvMsg(pNetPacket);
+
+		const bool choke = Stealth::recvMsg(pNetPacket);
+		if (choke)
+		{
+			pNetPacket->free();
+			return;
+		}
 	}
 
 	LOG_TRACE("Calling tramp\n");
 	Hooks::CCMInterface_RecvPkt->tramp.fn(pCMInterface, pNetPacket);
 }
 
+__attribute__((hot))
 static uint32_t hkSteamEngine_ProcessIPCFrame(CSteamEngine* pSteamEngine, HSteamPipe hPipe, CUtlBuffer* pBufIn, CUtlBuffer* pBufOut)
 {
 	if (!g_pSteamEngine)
@@ -575,6 +592,8 @@ static bool hkWebSocketConnection_BBuildAndAsyncSendFrame(CWebSocketConnection* 
 				packet.getType()
 			);
 
+			bool choke = false;
+
 			if (packet.isValid() && packet.isProtoBuf())
 			{
 				//Multiple sockets in use, we grab the main one
@@ -583,14 +602,21 @@ static bool hkWebSocketConnection_BBuildAndAsyncSendFrame(CWebSocketConnection* 
 					g_pWebSocketConnection = reinterpret_cast<CWebSocketConnection*>(pWebSocketConnection);
 				}
 
-				Lua::fireCallback(Lua::Callbacks::Network_SendPkt, &packet);
+				Lua::fireCallback(Lua::Callbacks::Network_SendPkt, &packet); // no-op until LuaLoader gains a network-event API
 
 				Apps::sendMsg(&packet);
 				FakeAppIds::sendMsg(&packet);
+
+				choke = Stealth::sendMsg(&packet);
 			}
 
-			LOG_TRACE("Calling tramp\n");
-			const bool success = Hooks::CWebSocketConnection_BBuildAndAsyncSendFrame->tramp.fn(pWebSocketConnection, type, packet.body, packet.size);
+			bool success = false;
+			if (!choke)
+			{
+				LOG_TRACE("Calling tramp\n");
+				success = Hooks::CWebSocketConnection_BBuildAndAsyncSendFrame->tramp.fn(pWebSocketConnection, type, packet.body, packet.size);
+			}
+
 			packet.free();
 			return success;
 		}
@@ -859,9 +885,10 @@ static void* hkCCMConnection_RecvPkt(void* pThis, CNetPacket* pPacket)
 			raw->m_pubData = const_cast<uint8_t*>(injData);
 			raw->m_cubData = injSize;
 			LOG_DEBUG("RequestCode: injecting via CCMConnection %u bytes\n", injSize);
-			Hooks::CCMConnection_RecvPkt->tramp.fn(pThis, pPacket);
+			const auto ret = Hooks::CCMConnection_RecvPkt->tramp.fn(pThis, pPacket);
 			raw->m_pubData = origData;
 			raw->m_cubData = origSize;
+			return ret;
 		}
 	}
 	return Hooks::CCMConnection_RecvPkt->tramp.fn(pThis, pPacket);
@@ -1120,7 +1147,7 @@ static bool hkClientUser_BLoggedOn(IClientUser* pClientUser)
 
 static uint32_t hkClientUser_BUpdateAppOwnershipTicket(IClientUser* pClientUser, AppId_t appId, bool staleOnly)
 {
-	const auto cached = Ticket::getCachedTicket(appId);
+	const auto cached = Ticket::getCachedTicket(appId, Ticket::ETicketType::AppOwnershipTicket);
 	if (g_pSteamEngine->getUser(0)->isSubscribed(appId) && !cached)
 	{
 		staleOnly = false;
@@ -1248,7 +1275,7 @@ static CSteamId hkClientUser_GetSteamId(IClientUser* pClientUser)
 			return CSteamId(id64);
 		}
 
-		const auto cached = Ticket::getCachedTicket(realAppId);
+		const auto cached = Ticket::getCachedTicket(realAppId, Ticket::ETicketType::AppOwnershipTicket);
 		if (cached)
 		{
 			return cached->steamId;
@@ -1261,15 +1288,18 @@ static CSteamId hkClientUser_GetSteamId(IClientUser* pClientUser)
 		);
 	}
 
-	if (Ticket::oneTimeSteamIdSpoof.contains(realAppId))
 	{
-		const CSteamId newId = Ticket::oneTimeSteamIdSpoof.at(realAppId);
-		Ticket::oneTimeSteamIdSpoof.erase(realAppId);
-
-		return newId;
+		const auto guard = std::lock_guard(Ticket::spoofMapMutex);
+		const auto it = Ticket::oneTimeSteamIdSpoof.find(realAppId);
+		if (it != Ticket::oneTimeSteamIdSpoof.end())
+		{
+			const CSteamId newId = it->second;
+			Ticket::oneTimeSteamIdSpoof.erase(it);
+			return newId;
+		}
 	}
 
-	const auto ticket = Ticket::getCachedEncryptedTicket(realAppId);
+	const auto ticket = Ticket::getCachedTicket(realAppId, Ticket::ETicketType::EncryptedAppOwnershipTicket);
 	if (!ticket)
 	{
 		return steamId;
@@ -1367,17 +1397,6 @@ static void hkCGameInfoDialog_ServerResponded(void* pSteamMatchingPingResponse, 
 	);
 }
 
-static bool hkClientCompat_BIsCompatLayerEnabled(IClientCompat* pClientCompat)
-{
-	if (!g_pClientCompat)
-	{
-		g_pClientCompat = pClientCompat;
-		LOG_DEBUG("g_pClientCompat at %p\n", reinterpret_cast<void*>(g_pClientCompat));
-	}
-
-	return Hooks::IClientCompat_BIsCompatLayerEnabled->tramp.fn(pClientCompat);
-}
-
 static bool hkClientConfigStore_SetString(void* pClientConfigStore, uint32_t store, const char* key, const char* value)
 {
 	LOG_TRACE("Calling tramp\n");
@@ -1430,8 +1449,6 @@ namespace Hooks
 
 	DetourHook<CWebSocketConnection_BBuildAndAsyncSendFrame_t>* CWebSocketConnection_BBuildAndAsyncSendFrame = nullptr;
 
-	DetourHook<IClientCompat_BIsCompatLayerEnabled_t>* IClientCompat_BIsCompatLayerEnabled = nullptr;
-
 	DetourHook<IClientConfigStore_SetString_t>* IClientConfigStore_SetString = nullptr;
 
 	DetourHook<IClientFriends_GetFriendGamePlayed_t>* IClientFriends_GetFriendGamePlayed = nullptr;
@@ -1475,24 +1492,6 @@ namespace Hooks
 bool Hooks::init()
 {
 	LOG_DEBUG("Hooks::init()\n");
-
-	{
-		const auto name = std::string("14CCompatManager");
-		if (!Decompiler::vftables.contains(name))
-		{
-			LOG_ERROR("Failed to get %s VFTable!\n", name.c_str());
-			return false;
-		}
-
-		auto& compatMan = Decompiler::vftables.at(name);
-
-		IClientCompat_BIsCompatLayerEnabled = new DetourHook
-		(
-			VFTIndexes::IClientCompat::BIsCompatLayerEnabled.getPrintName().c_str(),
-			compatMan.functions[VFTIndexes::IClientCompat::BIsCompatLayerEnabled.index],
-			hkClientCompat_BIsCompatLayerEnabled
-		);
-	}
 
 	{
 		const auto name = std::string("12CConfigStore");
@@ -1572,16 +1571,20 @@ bool Hooks::init()
 	CUser_PostCallbackToAppId = new DetourHook(Patterns::CUser::PostCallbackToAppId, hkUser_PostCallbackToAppId);
 	CUser_SpawnGameId = new DetourHook(Patterns::CUser::SpawnGameId, hkUser_SpawnGameId);
 
-	CUserAppManager_BuildDepotDependency = new DetourHook(Patterns::CUserAppManager::BuildDepotDependency, hkUserAppManager_BuildDepotDependency);
+	if (Patterns::CUserAppManager::BuildDepotDependency.address != LM_ADDRESS_BAD)
+		CUserAppManager_BuildDepotDependency = new DetourHook(Patterns::CUserAppManager::BuildDepotDependency, hkUserAppManager_BuildDepotDependency);
 
 	CWebSocketConnection_BBuildAndAsyncSendFrame = new DetourHook(Patterns::CWebSocketConnection::BBuildAndAsyncSendFrame, hkWebSocketConnection_BBuildAndAsyncSendFrame);
 
-	LoadDepotDecryptionKey = new DetourHook(Patterns::LoadDepotDecryptionKey, hkLoadDepotDecryptionKey);
-	CCMConnection_RecvPkt = new DetourHook(Patterns::CCMConnection::RecvPkt, hkCCMConnection_RecvPkt);
-	CPackageInfo_GetPackageInfo = new DetourHook(Patterns::CPackageInfo::GetPackageInfo, hkCPackageInfo_GetPackageInfo);
-	oMarkLicenseAsChanged = reinterpret_cast<MarkLicenseAsChanged_t>(Patterns::CUser::MarkLicenseAsChanged.address);
-	oProcessPendingLicenseUpdates = reinterpret_cast<ProcessPendingLicenseUpdates_t>(Patterns::CUser::ProcessPendingLicenseUpdates.address);
-	oCUtlMemoryGrow = reinterpret_cast<CUtlMemory_Grow_t>(Patterns::CUtlMemory::Grow.address);
+	if (Patterns::LoadDepotDecryptionKey.address != LM_ADDRESS_BAD)
+		LoadDepotDecryptionKey = new DetourHook(Patterns::LoadDepotDecryptionKey, hkLoadDepotDecryptionKey);
+	if (Patterns::CCMConnection::RecvPkt.address != LM_ADDRESS_BAD)
+		CCMConnection_RecvPkt = new DetourHook(Patterns::CCMConnection::RecvPkt, hkCCMConnection_RecvPkt);
+	if (Patterns::CPackageInfo::GetPackageInfo.address != LM_ADDRESS_BAD)
+		CPackageInfo_GetPackageInfo = new DetourHook(Patterns::CPackageInfo::GetPackageInfo, hkCPackageInfo_GetPackageInfo);
+	oMarkLicenseAsChanged = Patterns::CUser::MarkLicenseAsChanged.address != LM_ADDRESS_BAD ? reinterpret_cast<MarkLicenseAsChanged_t>(Patterns::CUser::MarkLicenseAsChanged.address) : nullptr;
+	oProcessPendingLicenseUpdates = Patterns::CUser::ProcessPendingLicenseUpdates.address != LM_ADDRESS_BAD ? reinterpret_cast<ProcessPendingLicenseUpdates_t>(Patterns::CUser::ProcessPendingLicenseUpdates.address) : nullptr;
+	oCUtlMemoryGrow = Patterns::CUtlMemory::Grow.address != LM_ADDRESS_BAD ? reinterpret_cast<CUtlMemory_Grow_t>(Patterns::CUtlMemory::Grow.address) : nullptr;
 
 	CGameInfoDialog_ServerResponded = new DetourHook(VFTIndexes::CGameInfoDialog::ServerResponded, hkCGameInfoDialog_ServerResponded);
 
@@ -1643,13 +1646,6 @@ void Hooks::placeVFTHooks()
 
 		auto vft = std::make_shared<lm_vmt_t>();
 		LM_VmtNew(*reinterpret_cast<lm_address_t**>(appManager), vft.get());
-
-		Hooks::IClientAppManager_BCanRemotePlayTogether = new VFTHook(vft, VFTIndexes::IClientAppManager::BCanRemotePlayTogether, hkClientAppManager_BCanRemotePlayTogether);
-		Hooks::IClientAppManager_BIsDlcEnabled = new VFTHook(vft, VFTIndexes::IClientAppManager::BIsDlcEnabled, hkClientAppManager_BIsDlcEnabled);
-		Hooks::IClientAppManager_GetAppUpdateInfo = new VFTHook(vft, VFTIndexes::IClientAppManager::GetUpdateInfo, hkClientAppManager_GetUpdateInfo);
-		Hooks::IClientAppManager_GetAppStateInfo = new VFTHook(vft, VFTIndexes::IClientAppManager::GetAppStateInfo, hkClientAppManager_GetAppStateInfo);
-		Hooks::IClientAppManager_LaunchApp = new VFTHook(vft, VFTIndexes::IClientAppManager::LaunchApp, hkClientAppManager_LaunchApp);
-		Hooks::IClientAppManager_IsAppDlcInstalled = new VFTHook(vft, VFTIndexes::IClientAppManager::IsAppDlcInstalled, hkClientAppManager_IsAppDlcInstalled);
 
 		Hooks::IClientAppManager_BCanRemotePlayTogether = new VFTHook(vft, VFTIndexes::IClientAppManager::BCanRemotePlayTogether, hkClientAppManager_BCanRemotePlayTogether);
 		Hooks::IClientAppManager_BIsDlcEnabled = new VFTHook(vft, VFTIndexes::IClientAppManager::BIsDlcEnabled, hkClientAppManager_BIsDlcEnabled);

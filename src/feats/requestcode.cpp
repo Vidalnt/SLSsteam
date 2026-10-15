@@ -18,6 +18,11 @@
 constexpr uint32_t EMSG_SERVICE_METHOD_CALL_FROM_CLIENT = 151;
 constexpr uint32_t EMSG_SERVICE_METHOD_RESPONSE = 147;
 
+// Max concurrent manifest-code fetches. Overflow fails closed with an
+// immediate AccessDenied (same as no-code) instead of spawning threads
+// without bound or leaking the real request to Valve.
+constexpr int kMaxInflightFetches = 8;
+
 namespace {
 	constexpr char TARGET_JOB_NAME[] = "ContentServerDirectory.GetManifestRequestCode#1";
 	struct Pending {
@@ -30,8 +35,10 @@ namespace {
 	std::mutex g_mutex;
 	std::mutex g_deniedGidMtx;
 	std::unordered_set<uint64_t> g_deniedGids;
-	std::atomic<size_t> g_pendingCount{0};
-	std::vector<uint8_t> g_injectPkt;
+	std::atomic<int> g_inflightFetches{0};
+	// Per-thread inject buffer: the two recv hooks run on different threads,
+	// so a shared buffer would race between build and tramp delivery.
+	thread_local std::vector<uint8_t> t_injectPkt;
 
 	// Varint helpers for manual protobuf parsing (CContentServerDirectory)
 	bool readVarint(const uint8_t* data, uint32_t size, uint32_t& pos, uint64_t& out) {
@@ -77,7 +84,14 @@ namespace {
 			writeVarint(bodyBytes, code);
 		}
 		const uint8_t* outData=nullptr; uint32_t outSize=0;
-		return netpacket::AssembleRaw(g_injectPkt, EMSG_SERVICE_METHOD_RESPONSE | kMsgHdrProtoFlag, hdrBytes.data(), hdrBytes.size(), bodyBytes.data(), bodyBytes.size(), outData, outSize);
+		return netpacket::AssembleRaw(t_injectPkt, EMSG_SERVICE_METHOD_RESPONSE | kMsgHdrProtoFlag, hdrBytes.data(), hdrBytes.size(), bodyBytes.data(), bodyBytes.size(), outData, outSize);
+	}
+	void pushFailedClosed(uint64_t jobId, const uint8_t* pHdr, uint32_t cbHdr){
+		Pending p; p.jobId=jobId; p.gid=0;
+		std::promise<uint64_t> ready; ready.set_value(0);
+		p.future = ready.get_future().share();
+		p.reqHdr.assign(pHdr,pHdr+cbHdr);
+		std::lock_guard<std::mutex> lk(g_mutex); g_pending.push_back(std::move(p));
 	}
 }
 namespace RequestCode {
@@ -86,9 +100,7 @@ namespace RequestCode {
 		if(depotId==0) return false;
 		if(LuaLoader::hasOwnedAppId(depotId)) return true;
 		if(LuaLoader::getManifest(depotId).has_value()) return true;
-		auto it = LuaLoader::depotKeys.find(depotId);
-		if(it != LuaLoader::depotKeys.end()) return true;
-		return false;
+		return LuaLoader::hasDepotKey(depotId);
 	}
 	bool onSendFrame(const uint8_t* pubData, uint32_t cubData){
 		uint32_t eMsg=0; const uint8_t *pHdr=nullptr,*pBody=nullptr; uint32_t cbHdr=0,cbBody=0;
@@ -102,47 +114,43 @@ namespace RequestCode {
 		const bool parsed = parseRequest(pBody,cbBody,appId,depotId,gid);
 		if(!parsed){
 			// fail-closed: suppress unparsable request and fabricate AccessDenied instead of leaking to Valve
-			appId = 0; depotId = 0; gid = 0;
-			LOG_DEBUG("RequestCode: unparsable GetManifestRequestCode, fail-closed fabricate (jobid=%llu)\n", (unsigned long long)hdr.jobid_source());
+			LOG_WARN("RequestCode: unparsable GetManifestRequestCode, fail-closed fabricate (jobid=%llu)\n", (unsigned long long)hdr.jobid_source());
+			pushFailedClosed(hdr.jobid_source(), pHdr, cbHdr);
+			return true;
 		}
 		// only suppress GetManifestRequestCode for spoofed app or lua-controlled depot
 		bool controlled = false;
-		if(parsed){
-			if(appId != 0 && Ownership::shouldSpoofOwnership(appId)) controlled = true;
-			else if(isLuaControlledDepot(depotId)) controlled = true;
-			if(!controlled) return false;
-		} else {
-			controlled = true;
-		}
-		if(!parsed){
-			Pending p; p.jobId=hdr.jobid_source(); p.gid=0;
-			std::promise<uint64_t> ready; ready.set_value(0);
-			p.future = ready.get_future().share();
-			p.reqHdr.assign(pHdr,pHdr+cbHdr);
-			{ std::lock_guard<std::mutex> lk(g_mutex); g_pending.push_back(std::move(p)); g_pendingCount.store(g_pending.size(), std::memory_order_release); }
-			LOG_DEBUG("RequestCode: drop+fabricate unparsable jobid=%llu\n", (unsigned long long)hdr.jobid_source());
+		if(appId != 0 && Ownership::shouldSpoofOwnership(appId)) controlled = true;
+		else if(isLuaControlledDepot(depotId)) controlled = true;
+		if(!controlled) return false;
+		LOG_DEBUG("RequestCode: drop+fabricate for app=%u depot=%u gid=%llu (jobid=%llu)\n", appId, depotId, (unsigned long long)gid, (unsigned long long)hdr.jobid_source());
+		if(g_inflightFetches.load(std::memory_order_acquire) >= kMaxInflightFetches){
+			LOG_WARN("RequestCode: fetch cap hit, fail-closed fabricate (jobid=%llu)\n", (unsigned long long)hdr.jobid_source());
+			pushFailedClosed(hdr.jobid_source(), pHdr, cbHdr);
 			return true;
 		}
-		LOG_DEBUG("RequestCode: drop+fabricate for app=%u depot=%u gid=%llu (jobid=%llu)\n", appId, depotId, (unsigned long long)gid, (unsigned long long)hdr.jobid_source());
+		g_inflightFetches.fetch_add(1, std::memory_order_acq_rel);
 		std::shared_future<uint64_t> future;
 		try{
 			future=std::async(std::launch::async,[appId,depotId,gid]()->uint64_t{
+				struct Guard{ ~Guard(){ g_inflightFetches.fetch_sub(1, std::memory_order_acq_rel); } } guard;
 				try{ uint64_t code=0; if(LuaLoader::fetchManifestCode(appId,depotId,gid,code)) return code; } catch(const std::exception& e){ LOG_WARN("RequestCode: fetch threw: %s\n", e.what()); } catch(...){ LOG_WARN("RequestCode: fetch threw unknown\n"); } return 0;
 			}).share();
-		}catch(const std::exception& e){ LOG_WARN("RequestCode: failed to launch fetch for jobid=%llu: %s\n", (unsigned long long)hdr.jobid_source(), e.what()); return false; }
+		}catch(const std::exception& e){ g_inflightFetches.fetch_sub(1, std::memory_order_acq_rel); LOG_WARN("RequestCode: failed to launch fetch for jobid=%llu: %s\n", (unsigned long long)hdr.jobid_source(), e.what()); return false; }
 		Pending p; p.jobId=hdr.jobid_source(); p.gid=gid; p.future=std::move(future); p.reqHdr.assign(pHdr,pHdr+cbHdr);
-		{ std::lock_guard<std::mutex> lk(g_mutex); g_pending.push_back(std::move(p)); g_pendingCount.store(g_pending.size(), std::memory_order_release); }
+		{ std::lock_guard<std::mutex> lk(g_mutex); g_pending.push_back(std::move(p)); }
 		return true;
 	}
 	bool nextInjection(const uint8_t*& outData, uint32_t& outSize){
-		if(g_pendingCount.load(std::memory_order_acquire)==0) return false;
 		Pending ready; bool have=false;
-		{ std::lock_guard<std::mutex> lk(g_mutex); for(auto it=g_pending.begin(); it!=g_pending.end(); ++it){ if(it->future.wait_for(std::chrono::seconds(0))!=std::future_status::ready) continue; ready=std::move(*it); g_pending.erase(it); g_pendingCount.store(g_pending.size(), std::memory_order_release); have=true; break; } }
+		{ std::lock_guard<std::mutex> lk(g_mutex);
+			if(g_pending.empty()) return false;
+			for(auto it=g_pending.begin(); it!=g_pending.end(); ++it){ if(it->future.wait_for(std::chrono::seconds(0))!=std::future_status::ready) continue; ready=std::move(*it); g_pending.erase(it); have=true; break; } }
 		if(!have) return false;
 		uint64_t code=0; try{ code=ready.future.get(); } catch(...){ LOG_WARN("RequestCode: fetch exception for jobid=%llu\n", (unsigned long long)ready.jobId); }
 		if(!buildInject(ready,code)){ LOG_WARN("RequestCode: failed to build inject for jobid=%llu\n", (unsigned long long)ready.jobId); return false; }
 		if(code){ { std::lock_guard<std::mutex> lk(g_deniedGidMtx); g_deniedGids.erase(ready.gid); } LOG_INFO("RequestCode: injected code=%llu for jobid=%llu\n", (unsigned long long)code, (unsigned long long)ready.jobId); }
 		else { bool first; { std::lock_guard<std::mutex> lk(g_deniedGidMtx); first=g_deniedGids.insert(ready.gid).second; } if(first) { LOG_WARN("RequestCode: no code for gid=%llu fabricated Access Denied\n", (unsigned long long)ready.gid); } else { LOG_DEBUG("RequestCode: no code for gid=%llu jobid=%llu already warned\n", (unsigned long long)ready.gid, (unsigned long long)ready.jobId); } }
-		outData=g_injectPkt.data(); outSize=(uint32_t)g_injectPkt.size(); return true;
+		outData=t_injectPkt.data(); outSize=(uint32_t)t_injectPkt.size(); return true;
 	}
 }

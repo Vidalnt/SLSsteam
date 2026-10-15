@@ -58,13 +58,16 @@ namespace LuaLoader {
     void onDepotsChanged();
     void setOnDepotsChanged(void (*fn)());
 
-    void unloadFile(const std::string& path);
     std::vector<uint32_t> takePendingAdditions();
     std::vector<uint32_t> takePendingRemovals();
 
     // True when a live Lua contribution registered this app via addappid().
     // Used to let Lua take precedence over yaml AdditionalApps for download policy.
     bool hasOwnedAppId(uint32_t appId);
+
+    // True when depotId has any depotKeys entry (key or empty marker).
+    // Locked accessor for threads that must not touch the map directly.
+    bool hasDepotKey(uint32_t depotId);
 
     // Snapshot of all owned ids under the lua lock. Used by CConfig so a
     // yaml hot-reload does not mistake live lua apps for removed ones.
@@ -84,14 +87,6 @@ namespace LuaLoader {
     // Returns the Steam ID associated with appId via setstat.
     // Falls back to 76561198028121353 when not set.
     uint64_t getStatSteamId(uint32_t appId);
-
-    // Returns a pointer to the in-memory app ownership ticket for appId
-    // registered via setappticket(), or nullptr if not present.
-    std::optional<LuaTicket> getAppTicket(uint32_t appId);
-
-    // Returns a pointer to the in-memory encrypted ticket for appId
-    // registered via seteticket(), or nullptr if not present.
-    std::optional<LuaTicket> getEncTicket(uint32_t appId);
 
     // Fetch the manifest request code for (appId, depotId, gid).
     // Selection order:

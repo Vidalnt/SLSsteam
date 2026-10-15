@@ -2,6 +2,7 @@
 
 #include "../config.hpp"
 #include "../globals.hpp"
+#include "../sdk/protobufs/steammessages_clientserver_login.pb.h"
 
 #include "fakeappid.hpp"
 
@@ -17,7 +18,6 @@ bool Misc::shouldFakeOffline()
 	LOG_ONCE("Faking offline mode for %u\n", appId);
 	return true;
 }
-
 
 void Misc::recvMsg(CNetPacket *pkt)
 {
@@ -80,6 +80,24 @@ void Misc::recvMsg(CNetPacket *pkt)
 			msg.set_has_wallet(true);
 			msg.set_balance(amount);
 			msg.set_balance64(amount);
+
+			pkt->serialize(msg);
+			break;
+		}
+
+		case k_EMsgClientLogOnResponse:
+		{
+			auto msg = pkt->deserializeBody<CMsgClientLogonResponse>();
+			if (msg.has_parental_setting_signature())
+			{
+				msg.clear_parental_setting_signature();
+				LOG_DEBUG("Cleared parental setting signature!\n");
+			}
+			if (msg.has_parental_settings())
+			{
+				msg.clear_parental_settings();
+				LOG_DEBUG("Cleared parental settings!\n");
+			}
 
 			pkt->serialize(msg);
 			break;

@@ -7,6 +7,11 @@
 
 void Manifest::patchDepotInfo(CUtlVector<DepotEntry>* pDepotInfo)
 {
+	if (!pDepotInfo)
+	{
+		return;
+	}
+
 	DepotEntry* entries = pDepotInfo->mem.base;
 	if (!entries)
 	{

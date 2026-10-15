@@ -22,12 +22,12 @@ bool isGenuinelyOwned(uint32_t appId)
 
 void setGenuinelyOwned(uint32_t appId, bool owned)
 {
+	std::lock_guard<std::mutex> lock(g_realOwnedMtx);
 	if (owned && !isControlledApp(appId))
 	{
 		return;
 	}
 
-	std::lock_guard<std::mutex> lock(g_realOwnedMtx);
 	if (owned)
 	{
 		if (g_realOwnedAppIds.emplace(appId).second)
@@ -41,11 +41,6 @@ void setGenuinelyOwned(uint32_t appId, bool owned)
 	{
 		LOG_ONCE("Unmarking %u as genuinely owned\n", appId);
 	}
-}
-
-void markGenuinelyOwned(uint32_t appId)
-{
-	setGenuinelyOwned(appId, true);
 }
 
 void unmarkGenuinelyOwned(uint32_t appId)
@@ -83,13 +78,6 @@ std::vector<uint32_t> getControlledAppIds()
 std::unordered_set<uint32_t> getControlledAppIdSet()
 {
 	return g_config.addedAppIds.copy();
-}
-
-uint32_t getPurchaseTime(uint32_t appId)
-{
-	auto m = g_config.subscriptionTimestamps.copy();
-	auto it = m.find(appId);
-	return it != m.end() ? it->second : 0u;
 }
 
 } // namespace Ownership

@@ -253,11 +253,6 @@ namespace VFTIndexes
 			"16IClientCompatMap",
 			"BIsCompatibilityToolEnabled"
 		};
-		VFTableInfo_t GetAvailableCompatToolsForApp
-		{
-			"16IClientCompatMap",
-			"GetAvailableCompatToolsForApp"
-		};
 		VFTableInfo_t GetCompatToolDisplayName
 		{
 			"16IClientCompatMap",

@@ -19,7 +19,6 @@ namespace SLSAPI
 	{
 		enum class OpType
 		{
-			Dump,
 			Get,
 			Set
 		};

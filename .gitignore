@@ -8,3 +8,4 @@ zip
 
 src/config_default.hpp
 src/version.hpp
+/third_party

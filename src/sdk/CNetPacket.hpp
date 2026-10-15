@@ -11,18 +11,6 @@
 #include <cstdint>
 #include <string>
 
-//Biggest message I have observed was around 600kb. We just set
-//a limit so we don't accidentally fill the whole buffer with 1 message
-constexpr static unsigned int MAX_PACKET_SIZE = 1024 * 1024 * 1; //1MB
-//Theoretical max
-constexpr static unsigned int MAX_PACKETS = 8;
-
-//TODO: Move into anonymous namespace or something, so these don't clutter the global namespace
-extern uint8_t g_packetsArray[MAX_PACKET_SIZE * MAX_PACKETS];
-extern uintptr_t g_packetsArrayOffset;
-
-extern std::mutex g_packetSerializeMutex;
-
 
 //Helper class to make calculations more legible
 SDK_Class CNetPacketBody
@@ -38,12 +26,12 @@ public:
 SDK_Class CNetPacket
 {
 public:
-	uint8_t __pad0x0[0x4];			//0x0
-	CNetPacketBody* body;			//0x4
-	uint32_t size;					//0x8
-	int32_t refs;					//0xC
-	CNetPacketBody* originalBody;	//0x10 - Ref counted pointer
-	uint8_t __pad0x10[0xC];			//0x14
+	uint8_t __pad0x0[0xC];			//0x0
+	CNetPacketBody* body;			//0xC
+	uint32_t size;					//0x10
+	int32_t refs;					//0x14
+	CNetPacketBody* originalBody;	//0x18 - Ref counted pointer
+	uint8_t __pad0x10[0x19];		//0x1C
 	
 	constexpr bool isValid() const
 	{
@@ -88,33 +76,24 @@ public:
 		const uintptr_t msgOffset = headerSize + headerOffset;
 		const uintptr_t newSize = msg.ByteSizeLong() + msgOffset;
 
-		if (newSize >= MAX_PACKET_SIZE)
+		uint8_t* mem = reinterpret_cast<uint8_t*>(Steam::Plat_Alloc(newSize));
+
+		if (!mem)
 		{
-			LOG_ERROR("Failed to serialize 0x%x! Buffer to small (needed %u, has %u)\n", getType(), newSize, MAX_PACKET_SIZE);
+			LOG_ERROR("Failed to allocate new packet body with size %u!\n", newSize);
 			return;
 		}
 
-		const std::lock_guard lock(g_packetSerializeMutex);
-
-		const uintptr_t remainingSize = sizeof(g_packetsArray) - g_packetsArrayOffset;
-		if (newSize >= remainingSize)
-		{
-			LOG_DEBUG("New packet size doesn't fit in end of buffer, (needed %u, has %u). Starting anew\n", newSize, remainingSize);
-			g_packetsArrayOffset = 0;
-		}
-
-		uint8_t* mem = &g_packetsArray[g_packetsArrayOffset];
+		auto newBdy = reinterpret_cast<CNetPacketBody*>(mem);
 
 		if (header)
 		{
 			if (!header->SerializeToArray(mem + headerOffset, headerSize))
 			{
 				LOG_ERROR("Failed to serialize header!\n");
-				return;
+				goto failed;
 			}
 
-			CNetPacketBody* newBdy = reinterpret_cast<CNetPacketBody*>(mem);
-			newBdy->type = getType();
 			newBdy->headerSize = headerSize;
 		}
 		else
@@ -125,17 +104,23 @@ public:
 		if (!msg.SerializeToArray(mem + msgOffset, msg.ByteSizeLong()))
 		{
 			LOG_ERROR("Failed to serialize 0x%x!\n", getType());
-			return;
+			goto failed;
+		}
+
+		if (body)
+		{
+			newBdy->type = body->type;
+			Steam::Plat_Free(body);
 		}
 
 		body = reinterpret_cast<CNetPacketBody*>(mem);
 		size = newSize;
-		//If I understand correctly Steam cleans up for us, that's why we crash when we free the originalBody ourself
-		//However the body we allocate doesn't get freed, so we just reuse a buffer for it
+		originalBody = body;
 
-		LOG_DEBUG("Serialized 0x%x into PACKETS_ARRAY at %u with size %u\n", getType(), g_packetsArrayOffset, newSize);
+		return;
 
-		g_packetsArrayOffset += size;
+	failed:
+		Steam::Plat_Free(mem);
 	}
 
 	template<typename T>
@@ -156,4 +141,4 @@ public:
 	}
 
 	void free();
-}; //0x20
+}; //0x35

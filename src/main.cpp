@@ -245,6 +245,18 @@ unsigned int la_version(unsigned int)
 	return LAV_CURRENT;
 }
 
+char* la_objsearch(const char* name, __attribute__((unused)) uintptr_t* cookie, __attribute__((unused)) unsigned int flag)
+{
+	const auto nameStr = std::string(name);
+	if (nameStr.ends_with("crashhandler.so"))
+	{
+		LOG_ONCE("Prevented crashhandler from loading\n");
+		return nullptr;
+	}
+
+	return const_cast<char*>(name);
+}
+
 unsigned int la_objopen(struct link_map *map, __attribute__((unused)) Lmid_t lmid, __attribute__((unused)) uintptr_t *cookie)
 {
 	const std::string name = map->l_name;

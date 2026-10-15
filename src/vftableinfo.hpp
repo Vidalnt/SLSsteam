@@ -84,7 +84,6 @@ namespace VFTIndexes
 	{
 		extern VFTableInfo_t BIsCompatLayerEnabled;
 		extern VFTableInfo_t BIsCompatibilityToolEnabled;
-		extern VFTableInfo_t GetAvailableCompatToolsForApp;
 		extern VFTableInfo_t GetCompatToolDisplayName;
 		extern VFTableInfo_t GetCompatToolName;
 		extern VFTableInfo_t SpecifyCompatTool;

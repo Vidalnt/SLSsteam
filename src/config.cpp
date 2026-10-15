@@ -405,9 +405,9 @@ bool CConfig::loadSettings(const bool firstLoad, const bool silent)
 		setError(ELoadError::MissingKey, "DenuvoGames");
 	}
 
-	Lua::fireCallback(Lua::Callbacks::SLSsteam_ConfigLoaded);
-
 	LuaLoader::reconcileIntoConfig();
+
+	Lua::fireCallback(Lua::Callbacks::SLSsteam_ConfigLoaded);
 
 	const auto errors = __loadErrors.copy();
 	if (!silent && errors.size())

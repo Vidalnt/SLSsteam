@@ -544,22 +544,19 @@ std::string Process_t::readFile(const char* fileName)
 
 AppId_t Process_t::getAppIdFromEnv()
 {
-	auto reAppId = std::regex("SteamAppId=[0-9]+");
-	std::smatch appIdMatch;
+	constexpr static const char* VARNAME = "SteamAppId";
 
-	if (!std::regex_search(environ, appIdMatch, reAppId))
+	if (!environ.contains(VARNAME))
 	{
-		LOG_ERROR("No SteamAppId in %s's environment! Using 0\n", exe.filename().c_str());
 		return 0;
 	}
 
-	reAppId = std::regex("[0-9]+");
-	const auto envVar = appIdMatch.str();
+	AppId_t appId;
+	if (!Utils::tryConvertToNumber(environ.at(VARNAME).c_str(), appId))
+	{
+		return 0;
+	}
 
-	std::regex_search(envVar, appIdMatch, reAppId);
-	AppId_t appId = std::stoul(appIdMatch.str());
-
-	LOG_DEBUG("AppId for process %s in 0x%x is %u\n", exe.filename().c_str(), pipeHandle, appId);
 	return appId;
 }
 
@@ -696,7 +693,13 @@ bool Process_t::init(const pid_t pid, const HSteamPipe pipeHandle)
 		}
 
 		cmdLine = Utils::strsplit(readFile("cmdline"), std::string("\0", 1));
-		environ = readFile("environ");
+		const auto envSplit = Utils::strsplit(readFile("environ"), std::string("\0", 1));
+
+		for (const auto& env : envSplit)
+		{
+			const auto var = Utils::strsplit(env, "=");
+			environ[var[0]] = var.size() > 1 ? var[1] : "";
+		}
 
 		if (!environ.size())
 		{
@@ -704,6 +707,8 @@ bool Process_t::init(const pid_t pid, const HSteamPipe pipeHandle)
 		}
 
 		appId = getAppIdFromEnv();
+		LOG_DEBUG("AppId for %s is %u\n", exe.filename().c_str(), appId);
+
 		if (!appId) //Will fail on steam process
 		{
 			return false;

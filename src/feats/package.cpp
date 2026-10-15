@@ -23,8 +23,6 @@ namespace {
 	// pumpOnSteamThread (Steam thread) so the actual pkg0 mutation + Mark/Process
 	// never runs on the foreign FileWatcher thread (cross-thread race -> crash).
 	std::atomic<bool>  g_pendingChange{false};
-	std::vector<uint32_t> g_pendingConfigAdditions;
-	std::vector<uint32_t> g_pendingConfigRemovals;
 
 	// Grow AppIdVec in batches to amortise realloc calls. 16 exceeds the typical lua
 	// set size (~10 ids) so a single grow is almost always enough.
@@ -65,8 +63,6 @@ namespace {
 }
 
 namespace Package {
-
-bool isActive() { return g_active.load(std::memory_order_acquire); }
 
 bool appendAppIdInPlace(CUtlVector<uint32_t>* vec, uint32_t appId)
 {
@@ -131,19 +127,6 @@ static bool appendAppIdGrowing(CUtlVector<uint32_t>* vec, uint32_t appId)
 
 void setInjectedPackage(void* pkg) { g_pkg.store(pkg, std::memory_order_release); }
 void setCUser(void* cuser) { g_cuser.store(cuser, std::memory_order_release); }
-void* getCUser() { return g_cuser.load(std::memory_order_acquire); }
-
-void queueAppIdChanges(const std::vector<uint32_t>& additions, const std::vector<uint32_t>& removals)
-{
-	if (!g_config.packageInjection.copy()) return;
-	if (additions.empty() && removals.empty()) return;
-	{
-		std::lock_guard<std::mutex> lock(g_injectMtx);
-		appendUnique(g_pendingConfigAdditions, additions);
-		appendUnique(g_pendingConfigRemovals, removals);
-	}
-	g_pendingChange.store(true, std::memory_order_release);
-}
 
 // Mark package 0 changed + process pending license updates so Steam re-evaluates
 // ownership without a restart. Do not call while holding g_injectMtx: Steam may
@@ -227,11 +210,7 @@ static void applyPendingChanges(const char* source)
 		std::lock_guard<std::mutex> lock(g_injectMtx);
 		auto* vec = PackageInfo::appIdVec(pkg);
 		appendUnique(removals, LuaLoader::takePendingRemovals());
-		appendUnique(removals, g_pendingConfigRemovals);
 		appendUnique(additions, LuaLoader::takePendingAdditions());
-		appendUnique(additions, g_pendingConfigAdditions);
-		g_pendingConfigRemovals.clear();
-		g_pendingConfigAdditions.clear();
 
 		// Snapshot the controlled set once: MTVariable::get copies the whole set on
 		// every call, so a per-id isControlledApp() would copy it 2*N times here.

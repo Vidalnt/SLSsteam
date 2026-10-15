@@ -2018,6 +2018,34 @@ inline bool EWindowsUpdateRebootBehavior_Parse(
   return ::PROTOBUF_NAMESPACE_ID::internal::ParseNamedEnum<EWindowsUpdateRebootBehavior>(
     EWindowsUpdateRebootBehavior_descriptor(), name, value);
 }
+enum EWindowsUpdateOperationResult : int {
+  k_EWindowsUpdateOperationResult_Unknown = -1,
+  k_EWindowsUpdateOperationResult_NotStarted = 0,
+  k_EWindowsUpdateOperationResult_InProgress = 1,
+  k_EWindowsUpdateOperationResult_Succeeded = 2,
+  k_EWindowsUpdateOperationResult_SucceededWithErrors = 3,
+  k_EWindowsUpdateOperationResult_Failed = 4,
+  k_EWindowsUpdateOperationResult_Aborted = 5
+};
+bool EWindowsUpdateOperationResult_IsValid(int value);
+constexpr EWindowsUpdateOperationResult EWindowsUpdateOperationResult_MIN = k_EWindowsUpdateOperationResult_Unknown;
+constexpr EWindowsUpdateOperationResult EWindowsUpdateOperationResult_MAX = k_EWindowsUpdateOperationResult_Aborted;
+constexpr int EWindowsUpdateOperationResult_ARRAYSIZE = EWindowsUpdateOperationResult_MAX + 1;
+
+const ::PROTOBUF_NAMESPACE_ID::EnumDescriptor* EWindowsUpdateOperationResult_descriptor();
+template<typename T>
+inline const std::string& EWindowsUpdateOperationResult_Name(T enum_t_value) {
+  static_assert(::std::is_same<T, EWindowsUpdateOperationResult>::value ||
+    ::std::is_integral<T>::value,
+    "Incorrect type passed to function EWindowsUpdateOperationResult_Name.");
+  return ::PROTOBUF_NAMESPACE_ID::internal::NameOfEnum(
+    EWindowsUpdateOperationResult_descriptor(), enum_t_value);
+}
+inline bool EWindowsUpdateOperationResult_Parse(
+    ::PROTOBUF_NAMESPACE_ID::ConstStringParam name, EWindowsUpdateOperationResult* value) {
+  return ::PROTOBUF_NAMESPACE_ID::internal::ParseNamedEnum<EWindowsUpdateOperationResult>(
+    EWindowsUpdateOperationResult_descriptor(), name, value);
+}
 enum EExternalSaleEventType : int {
   k_EExternalSaleEventType_Unknown = 0,
   k_EExternalSaleEventType_Publisher = 1,
@@ -2338,7 +2366,8 @@ enum EContentReportReason : int {
   k_EContentReportReason_ToSViolation = 66,
   k_EContentReportReason_Miscategorized = 67,
   k_EContentReportReason_BypassingProfanityFilter = 68,
-  k_EContentReportReason_MAX = 69
+  k_EContentReportReason_BulkDeletion = 69,
+  k_EContentReportReason_MAX = 70
 };
 bool EContentReportReason_IsValid(int value);
 constexpr EContentReportReason EContentReportReason_MIN = k_EContentReportReason_Invalid;
@@ -2471,6 +2500,33 @@ inline bool ECommentDeleteReason_Parse(
     ::PROTOBUF_NAMESPACE_ID::ConstStringParam name, ECommentDeleteReason* value) {
   return ::PROTOBUF_NAMESPACE_ID::internal::ParseNamedEnum<ECommentDeleteReason>(
     ECommentDeleteReason_descriptor(), name, value);
+}
+enum EDLCHighlightReason : int {
+  k_EDLCHighlightReason_None = 0,
+  k_EDLCHighlightReason_New = 1,
+  k_EDLCHighlightReason_ComingSoon = 2,
+  k_EDLCHighlightReason_PlayerFavorite = 3,
+  k_EDLCHighlightReason_Recommended = 4,
+  k_EDLCHighlightReason_NewPlayers = 5
+};
+bool EDLCHighlightReason_IsValid(int value);
+constexpr EDLCHighlightReason EDLCHighlightReason_MIN = k_EDLCHighlightReason_None;
+constexpr EDLCHighlightReason EDLCHighlightReason_MAX = k_EDLCHighlightReason_NewPlayers;
+constexpr int EDLCHighlightReason_ARRAYSIZE = EDLCHighlightReason_MAX + 1;
+
+const ::PROTOBUF_NAMESPACE_ID::EnumDescriptor* EDLCHighlightReason_descriptor();
+template<typename T>
+inline const std::string& EDLCHighlightReason_Name(T enum_t_value) {
+  static_assert(::std::is_same<T, EDLCHighlightReason>::value ||
+    ::std::is_integral<T>::value,
+    "Incorrect type passed to function EDLCHighlightReason_Name.");
+  return ::PROTOBUF_NAMESPACE_ID::internal::NameOfEnum(
+    EDLCHighlightReason_descriptor(), enum_t_value);
+}
+inline bool EDLCHighlightReason_Parse(
+    ::PROTOBUF_NAMESPACE_ID::ConstStringParam name, EDLCHighlightReason* value) {
+  return ::PROTOBUF_NAMESPACE_ID::internal::ParseNamedEnum<EDLCHighlightReason>(
+    EDLCHighlightReason_descriptor(), name, value);
 }
 // ===================================================================
 
@@ -2848,6 +2904,11 @@ template <>
 inline const EnumDescriptor* GetEnumDescriptor< ::EWindowsUpdateRebootBehavior>() {
   return ::EWindowsUpdateRebootBehavior_descriptor();
 }
+template <> struct is_proto_enum< ::EWindowsUpdateOperationResult> : ::std::true_type {};
+template <>
+inline const EnumDescriptor* GetEnumDescriptor< ::EWindowsUpdateOperationResult>() {
+  return ::EWindowsUpdateOperationResult_descriptor();
+}
 template <> struct is_proto_enum< ::EExternalSaleEventType> : ::std::true_type {};
 template <>
 inline const EnumDescriptor* GetEnumDescriptor< ::EExternalSaleEventType>() {
@@ -2912,6 +2973,11 @@ template <> struct is_proto_enum< ::ECommentDeleteReason> : ::std::true_type {};
 template <>
 inline const EnumDescriptor* GetEnumDescriptor< ::ECommentDeleteReason>() {
   return ::ECommentDeleteReason_descriptor();
+}
+template <> struct is_proto_enum< ::EDLCHighlightReason> : ::std::true_type {};
+template <>
+inline const EnumDescriptor* GetEnumDescriptor< ::EDLCHighlightReason>() {
+  return ::EDLCHighlightReason_descriptor();
 }
 
 PROTOBUF_NAMESPACE_CLOSE

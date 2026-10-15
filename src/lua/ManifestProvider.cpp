@@ -68,11 +68,6 @@ using Parser = bool (*)(std::string_view body, uint64_t& out);
 	static std::mutex g_chainMtx;
 	static std::vector<const Provider*> g_chain = { &kProviders[0], &kProviders[1], &kProviders[2] };
 
-	static std::vector<const Provider*> defaultChain()
-	{
-		return { &kProviders[0], &kProviders[1], &kProviders[2] };
-	}
-
 static const Provider* findProvider(const std::string& name)
 {
 	for (const auto& p : kProviders)
@@ -97,17 +92,6 @@ static std::string chainSummary(const std::vector<const Provider*>& chain)
 		summary += chain[i]->name;
 	}
 	return summary;
-}
-
-void resetProviders()
-{
-	std::vector<const Provider*> chain = defaultChain();
-	const std::string summary = chainSummary(chain);
-	{
-		std::lock_guard<std::mutex> lk(g_chainMtx);
-		g_chain = std::move(chain);
-	}
-	LOG_INFO("ManifestProvider: provider chain = %s (default)\n", summary.c_str());
 }
 
 bool setProviders(const std::vector<std::string>& names)
@@ -143,12 +127,6 @@ const char* activeProviderName()
 {
 	std::lock_guard<std::mutex> lk(g_chainMtx);
 	return g_chain.empty() ? kProviders[0].name : g_chain.front()->name;
-}
-
-std::string activeProviderChainSummary()
-{
-	std::lock_guard<std::mutex> lk(g_chainMtx);
-	return chainSummary(g_chain.empty() ? defaultChain() : g_chain);
 }
 
 static std::string buildUrl(const char* tmpl, uint64_t gid)

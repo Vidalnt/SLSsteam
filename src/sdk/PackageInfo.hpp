@@ -17,7 +17,6 @@ static_assert(sizeof(CUtlVector<uint32_t>) == 16, "CUtlVector<uint32> must be 16
 namespace PackageInfo {
     static constexpr size_t kStatusOff     = 0x18; // EPackageStatus: Available==0 (Invalid==3)
     static constexpr size_t kAppIdVecOff   = 0x38; // CUtlVector<uint32_t> (m_Size @ +0x44 in Plus layout, size @ +0xC in CUtlVector)
-    static constexpr size_t kDepotIdVecOff = 0x48; // offset verified in Plus; accessor omitted (no current caller)
 
     inline uint32_t status(void* pkg) {
         return *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(pkg) + kStatusOff);

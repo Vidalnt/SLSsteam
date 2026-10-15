@@ -41,7 +41,7 @@ bool Patterns::init()
 		{
 			if (std::string(pattern->name) == "CCMConnection::RecvPkt" ||
 			    std::string(pattern->name) == "LoadDepotDecryptionKey" ||
-			    std::string(pattern->name) == "BuildDepotDependency" ||
+			    std::string(pattern->name) == "CUserAppManager::BuildDepotDependency" ||
 			    std::string(pattern->name) == "CUser::MarkLicenseAsChanged" ||
 			    std::string(pattern->name) == "CUser::ProcessPendingLicenseUpdates" ||
 			    std::string(pattern->name) == "CUtlMemory::Grow" ||
@@ -121,12 +121,6 @@ namespace Patterns
 			SigFollowMode::PrologueUpwards,
 			std::vector<int16_t> { 0xC3, 0x81, -1, -1, -1, -1, 0xE8, 0x53, 0x56 }
 		};
-		Pattern_t Offset_ClientUtils
-		{
-			"CSteamEngine::m_ClientUtils",
-			"89 86 ? ? ? ? 8D 86 ? ? ? ? 89 44 24 ? 50 E8 ? ? ? ? 83 C4",
-			SigFollowMode::None
-		};
 		Pattern_t Offset_User
 		{
 			"CSteamEngine::m_pUser",
@@ -147,8 +141,9 @@ namespace Patterns
 		Pattern_t GetSubscribedApps
 		{
 			"CUser::GetSubscribedApps",
-			"E8 ? ? ? ? 89 C6 83 C4 ? 85 C0 0F 84 ? ? ? ? 8B 9D ? ? ? ? 39 D8",
-			SigFollowMode::Relative
+			"89 75 ? 0F 29 45",
+			SigFollowMode::PrologueUpwards,
+			std::vector<int16_t> { 0x56, 0x57, 0xE5, 0x89, 0x55 }
 		};
 		Pattern_t PostCallback
 		{
@@ -166,9 +161,9 @@ namespace Patterns
 		Pattern_t SpawnGameId
 		{
 			"CUser::SpawnGameId",
-			"89 D7 0F 11 42",
+			"84 C9 0F 45 45",
 			SigFollowMode::PrologueUpwards,
-			std::vector<int16_t> { 0x53, 0x56, 0x57, 0xE5, 0x89, 0x55, -1, -1, -1, -1, 0x5, -1, -1, -1, -1, 0xE8}
+			std::vector<int16_t> { 0x53, 0x56, 0x57, 0xE5, 0x89, 0x55, -1, -1, -1, -1, 0x5, -1, -1, -1, -1, 0xE8 }
 		};
 		Pattern_t UpdateAppOwnershipTicket
 		{
@@ -176,24 +171,6 @@ namespace Patterns
 			"52 57 89 DF FF 75",
 			SigFollowMode::PrologueUpwards,
 			std::vector<int16_t> { 0x53, 0x56, 0x57, 0xE5, 0x89, 0x55, -1, -1, -1, -1, 0x5, -1, -1, -1, -1, 0xE8 }
-		};
-		Pattern_t m_OffsetClientUser
-		{
-			"CUser::m_ClientUser",
-			"2D ? ? ? ? C7 44 24 ? ? ? ? ? 81 E1",
-			SigFollowMode::None
-		};
-		Pattern_t m_OffsetUserAppInfo
-		{
-			"CUser::m_UserAppInfo",
-			"8D 90 ? ? ? ? 8B 80 ? ? ? ? 6A ? 8D 4C 24",
-			SigFollowMode::None
-		};
-		Pattern_t m_OffsetUserAppManager
-		{
-			"CUser::m_UserAppmanager",
-			"8D 90 ? ? ? ? 8B 80 ? ? ? ? 68 ? ? ? ? 56",
-			SigFollowMode::None
 		};
 	}
 
@@ -221,13 +198,6 @@ namespace Patterns
 	{
 		"LoadDepotDecryptionKey",
 		"55 57 56 53 E8 ? ? ? ? 81 C3 ? ? ? ? 83 EC 24 8B 44 24 44 8B 6C 24 38 8B 7C 24 3C 8B 74 24 40 89 44 24 10 8B 44 24 48 89 44 24 14",
-		SigFollowMode::None
-	};
-
-	Pattern_t BuildDepotDependency
-	{
-		"BuildDepotDependency",
-		"55 89 E5 57 56 E8 ? ? ? ? 81 C6 ? ? ? ? 53 81 EC 2C 02 00 00 8B 45 08 89 85 1C FE FF FF 8B 45 10 89 85 24 FE FF FF",
 		SigFollowMode::None
 	};
 

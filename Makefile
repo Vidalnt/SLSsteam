@@ -52,9 +52,9 @@ endif
 ifeq ($(shell type ccache &> /dev/null && echo "found"),found)
 	export PATH := /usr/lib/ccache/bin:$(PATH)
 endif
-ifeq ($(shell type mold &> /dev/null && echo "found"),found)
-	LDFLAGS += -fuse-ld=mold
-endif
+#ifeq ($(shell type mold &> /dev/null && echo "found"),found)
+#	LDFLAGS += -fuse-ld=mold
+#endif
 
 FLAGSSHA := $(shell echo "$(CXXFLAGS) & $(LDFLAGS)" | sha256sum | cut -d " " -f 1)
 SLSSTEAMSO := bin/SLSsteam-$(FLAGSSHA).so
