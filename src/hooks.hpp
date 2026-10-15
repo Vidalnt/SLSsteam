@@ -225,7 +225,7 @@ namespace Hooks
 	typedef void*(*CPackageInfo_GetPackageInfo_t)(void*, uint32_t, uint64_t);
 	typedef void(*MarkLicenseAsChanged_t)(void*, uint32_t, int);
 	typedef bool(*ProcessPendingLicenseUpdates_t)(void*);
-	typedef bool(*CUtlMemory_Grow_t)(void*, uint32_t);
+	typedef void(*CUtlMemory_Grow_t)(void*, uint32_t);
 
 	extern DetourHook<LoadDepotDecryptionKey_t>* LoadDepotDecryptionKey;
 	extern DetourHook<CCMConnection_RecvPkt_t>* CCMConnection_RecvPkt;
