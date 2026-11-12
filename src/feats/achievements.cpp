@@ -2,7 +2,9 @@
 
 #include "../curl.hpp"
 #include "../config.hpp"
+#include "../globals.hpp"
 #include "../log.hpp"
+#include "../lua/LuaLoader.hpp"
 
 #include <cstdint>
 #include <cstring>
@@ -158,10 +160,18 @@ uint32_t Achievements::sendAndRecvGetPlayerStats
 		return k_EResultNoResult;
 	}
 
-	//Don't do anything for legit apps
-	if (g_pSteamEngine->getUser(0)->isSubscribed(send->appid()))
+	//Don't do anything for legit apps — but lua addappid makes isSubscribed fake-true, so treat lua as not subscribed for stats
+	if (g_pSteamEngine->getUser(0)->isSubscribed(send->appid()) && !LuaLoader::hasOwnedAppId(send->appid()))
 	{
 		return k_EResultNoResult;
+	}
+
+	if (send->has_steamid() && LuaLoader::hasOwnedAppId(send->appid()))
+	{
+		const uint64_t origSid = send->steamid();
+		const uint64_t donorSid = LuaLoader::getStatSteamId(send->appid());
+		if (origSid != 0 && origSid != g_currentSteamId.steamId64 && origSid != donorSid)
+			return k_EResultNoResult;
 	}
 
 	const AppId_t appId = send->appid();
@@ -241,9 +251,17 @@ uint32_t Achievements::sendAndRecvGetUserStats(CAPIJob* job, CProtoBufMsgBase* s
 
 	const auto sendBdy = send->getBody<CMsgClientGetUserStats>();
 
-	if (g_pSteamEngine->getUser(0)->isSubscribed(sendBdy->game_id()))
+	if (g_pSteamEngine->getUser(0)->isSubscribed(sendBdy->game_id()) && !LuaLoader::hasOwnedAppId(static_cast<uint32_t>(sendBdy->game_id())))
 	{
 		return 0;
+	}
+
+	if (sendBdy->has_steam_id_for_user() && LuaLoader::hasOwnedAppId(static_cast<uint32_t>(sendBdy->game_id())))
+	{
+		const uint64_t origSid = sendBdy->steam_id_for_user();
+		const uint64_t donorSid = LuaLoader::getStatSteamId(static_cast<uint32_t>(sendBdy->game_id()));
+		if (origSid != 0 && origSid != g_currentSteamId.steamId64 && origSid != donorSid)
+			return 0;
 	}
 
 	const AppId_t appId = sendBdy->game_id();

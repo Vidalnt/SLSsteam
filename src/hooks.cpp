@@ -6,6 +6,12 @@
 #include "feats/misc.hpp"
 #include "feats/fakeappid.hpp"
 #include "feats/ticket.hpp"
+#include "feats/manifest.hpp"
+#include "feats/requestcode.hpp"
+#include "sdk/DepotEntry.hpp"
+#include "sdk/RawNetPacket.hpp"
+#include "ownership.hpp"
+#include "lua/LuaLoader.hpp"
 
 #include "api.hpp"
 #include "config.hpp"
@@ -335,6 +341,28 @@ static uint32_t hkClientUnifiedServiceTransport_SendAndRecvMsg(CClientUnifiedSer
 
 static void hkCMInterface_RecvPkt(CCMInterface* pCMInterface, CNetPacket* pNetPacket)
 {
+	if (pNetPacket)
+	{
+		const uint8_t* injData = nullptr;
+		uint32_t injSize = 0;
+		bool inject = false;
+		try { inject = RequestCode::nextInjection(injData, injSize); } catch (...) { inject = false; }
+		if (inject && injData && injSize)
+		{
+			auto* raw = reinterpret_cast<RawCNetPacket*>(pNetPacket);
+			uint8_t* origData = raw->m_pubData;
+			uint32_t origSize = raw->m_cubData;
+			raw->m_pubData = const_cast<uint8_t*>(injData);
+			raw->m_cubData = injSize;
+			LOG_DEBUG("RequestCode: injecting fabricated %u bytes via RawCNetPacket carrier\n", injSize);
+			Hooks::CCMInterface_RecvPkt->tramp.fn(pCMInterface, pNetPacket);
+			raw->m_pubData = origData;
+			raw->m_cubData = origSize;
+			// Fabricated packet delivered; it must not run the live recv
+			// chain (Misc/Ticket/Achievements) nor hit the tramp a second time.
+			return;
+		}
+	}
 	LOG_DEBUG
 	(
 		"RecvPkt with CMInterface at %p %s -> 0x%x (refs %u, body %p, originalBody %p)\n",
@@ -372,7 +400,7 @@ static void hkCMInterface_RecvPkt(CCMInterface* pCMInterface, CNetPacket* pNetPa
 			return;
 		}
 
-		Lua::fireCallback(Lua::Callbacks::Network_RecvPkt, pNetPacket);
+		Lua::fireCallback(Lua::Callbacks::Network_RecvPkt, pNetPacket); // no-op until LuaLoader gains a network-event API
 
 		Misc::recvMsg(pNetPacket);
 		Ticket::recvMsg(pNetPacket);
@@ -520,6 +548,11 @@ struct RouteInfo_t
 
 static bool hkSendPacket(void* pThis, const RouteInfo_t& route, void* pData, steamsize_t size)
 {
+	if (route.connectionType == RouteInfo_t::EConnection::WebSocket && route.websocketSendType == k_EWebSocketConnectionSendRaw && pData && size)
+	{
+		try { if (RequestCode::onSendFrame(static_cast<const uint8_t*>(pData), static_cast<uint32_t>(size))) return true; } catch (...) { }
+	}
+
 	CNetPacket packet {};
 	packet.body = reinterpret_cast<CNetPacketBody*>(Steam::Plat_Alloc(size));
 
@@ -667,6 +700,17 @@ static bool hkUser_CheckAppOwnership(CUser* pUser, AppId_t appId, AppOwnershipIn
 		ret
 	);
 
+	if (pOwnershipInfo && Ownership::isControlledApp(appId))
+	{
+		const bool genuine = ret && pOwnershipInfo->numLicenses > 1;
+		Ownership::setGenuinelyOwned(appId, genuine);
+		if (genuine)
+		{
+			pOwnershipInfo->releaseState = EAppReleaseState::Released;
+			return ret;
+		}
+	}
+
 	if (Apps::checkAppOwnership(appId, pOwnershipInfo) || DLC::checkAppOwnership(appId, pOwnershipInfo))
 	{
 		return true;
@@ -799,6 +843,11 @@ static bool hkUserAppManager_BuildDepotDependency
 	);
 
 	Apps::buildDepotDependency(depots, sharedDepots);
+
+	if (depots)
+		Manifest::patchDepotInfo(reinterpret_cast<CUtlVector<DepotEntry>*>(depots));
+	if (sharedDepots)
+		Manifest::patchDepotInfo(reinterpret_cast<CUtlVector<DepotEntry>*>(sharedDepots));
 
 	return success;
 }
@@ -1095,6 +1144,13 @@ static uint32_t hkClientUser_GetAppOwnershipTicketExtendedData
 		pSigSize
    );
 
+	const uint32_t sizeOverride = Ticket::getTicketOwnershipExtendedData(appId, pTicket, ticketSize, pOffAppId, pOffSteamId, pOffSig, pSigSize, pClientUser);
+	if (sizeOverride)
+	{
+		LOG_ONCE("%s(%u)->%u (spliced)\n", Hooks::IClientUser_GetAppOwnershipTicketExtendedData->name.c_str(), appId, sizeOverride);
+		return sizeOverride;
+	}
+
 	LOG_ONCE("%s(%u)->%u\n", Hooks::IClientUser_GetAppOwnershipTicketExtendedData->name.c_str(), appId, size);
 
 	if (size)
@@ -1155,12 +1211,15 @@ static CSteamId hkClientUser_GetSteamId(IClientUser* pClientUser)
 		);
 	}
 
-	if (Ticket::oneTimeSteamIdSpoof.contains(realAppId))
 	{
-		const CSteamId newId = Ticket::oneTimeSteamIdSpoof.at(realAppId);
-		Ticket::oneTimeSteamIdSpoof.erase(realAppId);
-
-		return newId;
+		const auto guard = std::lock_guard(Ticket::spoofMapMutex);
+		const auto it = Ticket::oneTimeSteamIdSpoof.find(realAppId);
+		if (it != Ticket::oneTimeSteamIdSpoof.end())
+		{
+			const CSteamId newId = it->second;
+			Ticket::oneTimeSteamIdSpoof.erase(it);
+			return newId;
+		}
 	}
 
 	const auto ticket = Ticket::getCachedTicket(realAppId, Ticket::ETicketType::EncryptedAppOwnershipTicket);
@@ -1421,7 +1480,8 @@ bool Hooks::init()
 	CUser_PostCallbackToAppId = new DetourHook(Patterns::CUser::PostCallbackToAppId, hkUser_PostCallbackToAppId);
 	CUser_SpawnGameId = new DetourHook(Patterns::CUser::SpawnGameId, hkUser_SpawnGameId);
 
-	CUserAppManager_BuildDepotDependency = new DetourHook(Patterns::CUserAppManager::BuildDepotDependency, hkUserAppManager_BuildDepotDependency);
+	if (Patterns::CUserAppManager::BuildDepotDependency.address != LM_ADDRESS_BAD)
+		CUserAppManager_BuildDepotDependency = new DetourHook(Patterns::CUserAppManager::BuildDepotDependency, hkUserAppManager_BuildDepotDependency);
 
 	CWebSocketConnection_BBuildAndAsyncSendFrame = new DetourHook(Patterns::CWebSocketConnection::BBuildAndAsyncSendFrame, hkWebSocketConnection_BBuildAndAsyncSendFrame);
 

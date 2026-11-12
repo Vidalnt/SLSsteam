@@ -12,6 +12,7 @@ namespace Curl
 	{
 		const char*& url;
 		const std::vector<std::string>& headers;
+		const std::string& postBody;
 		std::string& out;
 		const int& timeOut;
 		int& result;
@@ -19,4 +20,5 @@ namespace Curl
 
 	int downloadString(const char* url, std::string& out, const int timeOut = DEFAULT_TIMEOUT, const bool async = true);
 	int downloadString(const char* url, const std::vector<std::string>& headers, std::string& out, const int timeOut = DEFAULT_TIMEOUT, const bool async = true);
+	int postString(const char* url, const std::string& postBody, const std::vector<std::string>& headers, std::string& out, const int timeOut = DEFAULT_TIMEOUT, const bool async = true);
 }

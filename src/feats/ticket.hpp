@@ -36,6 +36,7 @@ public:
 	};
 
 	extern std::unordered_map<AppId_t, CSteamId> oneTimeSteamIdSpoof;
+	extern std::mutex spoofMapMutex;
 
 	extern std::mutex ticketMapMutex;
 	extern std::unordered_map<AppId_t, std::shared_ptr<SavedTicket>> ticketMap;
@@ -76,9 +77,9 @@ public:
 	bool saveTicketToCache(const AppId_t appId, const std::string& bytes, const CSteamId& owner, const ETicketType type);
 
 	//Hooks
-	void closePipe(const HSteamPipe pipe);
 	void launchApp(const GameId_t gameId);
 	void getTicketOwnershipExtendedData(const AppId_t appId);
+	uint32_t getTicketOwnershipExtendedData(uint32_t appId, void* pTicket, uint32_t ticketSize, uint32_t* pOffAppId, uint32_t* pOffSteamId, uint32_t* pOffSig, uint32_t* pSigSize, void* pClientUser);
 
 	//Netpacket stuff
 	void recvAppTicket(const CNetPacket* pkt);

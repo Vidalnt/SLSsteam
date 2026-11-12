@@ -1,11 +1,3 @@
-.clangd
-.git
-.github
-bin
-obj
-releases
-zip
-
 pkg/*/src
 pkg/*/pkg
 
@@ -14,3 +6,4 @@ pkg/slssteam-local/SLSsteam.tar
 
 src/config_default.hpp
 src/version.hpp
+/third_party

@@ -27,32 +27,44 @@ static void actualDownloadString(Curl::Request_t* req)
 		return;
 	}
 
+	curl_slist* headers = nullptr;
+	for (const auto& hdr : req->headers)
+	{
+		curl_slist* next = curl_slist_append(headers, hdr.c_str());
+		if (!next)
+		{
+			curl_slist_free_all(headers);
+			curl_easy_cleanup(curl);
+			req->result = CURLE_OUT_OF_MEMORY;
+			return;
+		}
+		headers = next;
+	}
+
 	curl_easy_setopt(curl, CURLOPT_URL, req->url);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &req->out);
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, req->timeOut);
 
-	for (const auto& hdr : req->headers)
+	if (headers)
+		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+	if (!req->postBody.empty())
 	{
-		curl_easy_setopt(curl, CURLOPT_HEADER, hdr.c_str());
+		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, req->postBody.data());
+		curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)req->postBody.size());
 	}
 
 	req->result = curl_easy_perform(curl);
 
+	curl_slist_free_all(headers);
 	curl_easy_cleanup(curl);
 }
 
-int Curl::downloadString(const char* url, std::string& out, const int timeOut, const bool async)
+static int performRequest(const char* url, const std::vector<std::string>& headers, const std::string& postBody, std::string& out, const int timeOut, const bool async)
 {
-	return downloadString(url, { }, out, timeOut, async);
-}
-
-int Curl::downloadString(const char* url, const std::vector<std::string>& headers, std::string& out, const int timeOut, const bool async)
-{
-	LOG_DEBUG("Curling %s\n", url);
-
 	int result = 0;
-	Request_t req { url, headers, out, timeOut, result };
+	Curl::Request_t req { url, headers, postBody, out, timeOut, result };
 
 	if (async && Utils::isGLIBCBugged())
 	{
@@ -74,4 +86,25 @@ int Curl::downloadString(const char* url, const std::vector<std::string>& header
 	}
 
 	return result;
+}
+
+int Curl::downloadString(const char* url, std::string& out, const int timeOut, const bool async)
+{
+	const std::string postBody;
+	const std::vector<std::string> headers;
+	LOG_DEBUG("Curling %s\n", url);
+	return performRequest(url, headers, postBody, out, timeOut, async);
+}
+
+int Curl::downloadString(const char* url, const std::vector<std::string>& headers, std::string& out, const int timeOut, const bool async)
+{
+	const std::string postBody;
+	LOG_DEBUG("Curling %s\n", url);
+	return performRequest(url, headers, postBody, out, timeOut, async);
+}
+
+int Curl::postString(const char* url, const std::string& postBody, const std::vector<std::string>& headers, std::string& out, const int timeOut, const bool async)
+{
+	LOG_DEBUG("Curling POST %s\n", url);
+	return performRequest(url, headers, postBody, out, timeOut, async);
 }
