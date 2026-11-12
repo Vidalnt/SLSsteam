@@ -184,6 +184,11 @@ namespace Hooks
 
 	typedef bool(*CWebSocketConnection_BBuildAndAsyncSendFrame_t)(CWebSocketConnection*, EWebSocketConnectionSendType, void*, steamsize_t);
 
+	typedef void*(*CPackageInfo_GetPackageInfo_t)(void*, uint32_t, uint64_t);
+	typedef void(*MarkLicenseAsChanged_t)(void*, uint32_t, int);
+	typedef bool(*ProcessPendingLicenseUpdates_t)(void*);
+	typedef void*(*CUtlMemory_Grow_t)(CUtlMemory<uint32_t>*, int);
+
 	typedef bool(*IClientConfigStore_SetString_t)(void*, uint32_t, const char*, const char*);
 
 	typedef uint32_t(*IClientFriends_GetFriendGamePlayed_t)(void*, uint64_t, GamePlayed_t*);
@@ -216,6 +221,11 @@ namespace Hooks
 	extern DetourHook<CUserAppManager_BuildDepotDependency_t>* CUserAppManager_BuildDepotDependency;
 
 	extern DetourHook<CWebSocketConnection_BBuildAndAsyncSendFrame_t>* CWebSocketConnection_BBuildAndAsyncSendFrame;
+
+	extern DetourHook<CPackageInfo_GetPackageInfo_t>* CPackageInfo_GetPackageInfo;
+	extern MarkLicenseAsChanged_t oMarkLicenseAsChanged;
+	extern ProcessPendingLicenseUpdates_t oProcessPendingLicenseUpdates;
+	extern CUtlMemory_Grow_t oCUtlMemoryGrow;
 
 	extern DetourHook<IClientConfigStore_SetString_t>* IClientConfigStore_SetString;
 

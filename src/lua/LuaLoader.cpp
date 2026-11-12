@@ -99,6 +99,7 @@ static std::mutex g_luaMtx;
 // stay valid.
 static CFileWatcher *g_luaWatcher = nullptr;
 static std::vector<std::string> g_luaDirs;
+static std::atomic<void (*)()> g_onDepotsChanged{nullptr};
 
 // Case-insensitive function registry: lowercase name → C function.
 static std::unordered_map<std::string, lua_CFunction> g_func_registry;
@@ -977,6 +978,12 @@ static void scanDirectory(const std::string &dir)
 }
 
 // ── Lua-dir hot-reload callback ────────────────────────────────────────
+void onDepotsChanged()
+{
+	if (auto fn = g_onDepotsChanged.load())
+		fn();
+}
+void setOnDepotsChanged(void (*fn)()) { g_onDepotsChanged.store(fn); }
 
 // FileWatcher callback (runs on the FileWatcher thread). Reparse the changed
 // .lua under BOTH locks (lua VM + file tables), then reconcile g_config and
@@ -1006,6 +1013,7 @@ static void onLuaFileChanged(const std::filesystem::path &pathFs, const int mask
 	// reconcileIntoConfig locks g_luaMtx - call it AFTER releasing the locks
 	// above (std::mutex is non-recursive; double-lock would deadlock).
 	reconcileIntoConfig();
+	onDepotsChanged();
 }
 
 // ── Public entry point ────────────────────────────────────────────────

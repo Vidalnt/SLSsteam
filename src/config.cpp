@@ -215,6 +215,7 @@ bool CConfig::loadSettings(const bool firstLoad, const bool silent)
 	setAdditionalApps(effectiveAdditional, firstLoad);
 	yamlAddedAppIds = yamlAdditional;
 	yamlAppTokens = appTokens.copy();
+	packageInjection = getSetting<bool>(rootNode, "PackageInjection", true);
 
 
 	useLuaManifestOverrides.set(true);

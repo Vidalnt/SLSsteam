@@ -150,6 +150,21 @@ namespace Patterns
 		};
 	}
 
+	namespace CPackageInfo
+	{
+		Pattern_t GetPackageInfo
+		{
+			"CPackageInfo::GetPackageInfo",
+		#ifdef AARCH64
+			"FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF",
+			SigFollowMode::None
+		#else
+			"41 57 41 56 41 55 41 54 49 89 D4 55 48 89 FD 53 89 F3 48 83 EC 18 48 63 47 20",
+			SigFollowMode::None
+		#endif
+		};
+	}
+
 	namespace CUser
 	{
 		Pattern_t CheckAppOwnership
@@ -228,6 +243,28 @@ namespace Patterns
 			"41 89 CD 83 FD",
 			SigFollowMode::PrologueUpwards,
 			std::vector<int16_t> { 0x55, 0x41, 0x56, 0x41, 0x57, 0x41 }
+		#endif
+		};
+		Pattern_t MarkLicenseAsChanged
+		{
+			"CUser::MarkLicenseAsChanged",
+		#ifdef AARCH64
+			"FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF",
+			SigFollowMode::None
+		#else
+			"41 57 48 8D 87 80 23 00 00 41 89 F7 41 56",
+			SigFollowMode::None
+		#endif
+		};
+		Pattern_t ProcessPendingLicenseUpdates
+		{
+			"CUser::ProcessPendingLicenseUpdates",
+		#ifdef AARCH64
+			"FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF",
+			SigFollowMode::None
+		#else
+			"41 54 49 89 FC 55 53 8B 9F C8 24 00 00 83 EB 01 78 66",
+			SigFollowMode::None
 		#endif
 		};
 	}

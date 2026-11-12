@@ -86,6 +86,7 @@ public:
 	MTVariable<LogLevelFlags_t> logLevels = 0xff;
 	MTVariable<bool> dumpInterfaceMaps;
 	MTVariable<bool> extendedLogging;
+	MTVariable<bool> packageInjection;
 
 	MTVariable<std::unordered_set<AppId_t>> yamlAddedAppIds;
 	MTVariable<std::unordered_map<AppId_t, uint64_t>> yamlAppTokens;

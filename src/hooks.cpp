@@ -8,6 +8,8 @@
 #include "feats/ticket.hpp"
 #include "feats/manifest.hpp"
 #include "feats/requestcode.hpp"
+#include "feats/package.hpp"
+#include "sdk/PackageInfo.hpp"
 #include "sdk/DepotEntry.hpp"
 #include "sdk/RawNetPacket.hpp"
 #include "ownership.hpp"
@@ -686,8 +688,11 @@ static HServerRequest hkSteamMatchmakingServers_RequestInternetServerList(void* 
 __attribute__((hot))
 static bool hkUser_CheckAppOwnership(CUser* pUser, AppId_t appId, AppOwnershipInfo_t* pOwnershipInfo)
 {
+	Package::setCUser(pUser);
 	LOG_TRACE("Calling tramp\n");
 	const uint32_t ret = Hooks::CUser_CheckAppOwnership->tramp.fn(pUser, appId, pOwnershipInfo);
+
+	Package::pumpOnSteamThread("CUser::CheckAppOwnership");
 
 	//Do not log pOwnershipInfo because it gets deleted very quickly, so it's pretty much useless in the logs
 	LOG_ONCE
@@ -724,6 +729,9 @@ static uint32_t hkUser_GetSubscribedApps(CUser* pUser, AppId_t* pAppList, uint32
 	LOG_TRACE("Calling tramp\n");
 	uint32_t count = Hooks::CUser_GetSubscribedApps->tramp.fn(pUser, pAppList, size, a3);
 
+	Package::setCUser(pUser);
+	Package::pumpOnSteamThread("CUser::GetSubscribedApps");
+
 	Apps::getSubscribedApps(pAppList, size, count);
 
 	LOG_DEBUG
@@ -739,6 +747,19 @@ static uint32_t hkUser_GetSubscribedApps(CUser* pUser, AppId_t* pAppList, uint32
 	);
 
 	return count;
+}
+
+static void* hkCPackageInfo_GetPackageInfo(void* pThis, uint32_t pkgId, uint64_t token)
+{
+	void* ret = Hooks::CPackageInfo_GetPackageInfo->tramp.fn(pThis, pkgId, token);
+
+	if (pkgId == 0 && ret && PackageInfo::status(ret) == 0)
+	{
+		Package::setInjectedPackage(ret);
+		Package::pumpOnSteamThread("CPackageInfo::GetPackageInfo");
+	}
+
+	return ret;
 }
 
 static uint32_t hkUser_PostCallbackToAppId(CUser* pUser, AppId_t appId, ECallbackType type, void* pCallback, steamsize_t callbackSize)
@@ -1364,6 +1385,11 @@ namespace Hooks
 
 	DetourHook<CWebSocketConnection_BBuildAndAsyncSendFrame_t>* CWebSocketConnection_BBuildAndAsyncSendFrame = nullptr;
 
+	DetourHook<CPackageInfo_GetPackageInfo_t>* CPackageInfo_GetPackageInfo = nullptr;
+	MarkLicenseAsChanged_t oMarkLicenseAsChanged = nullptr;
+	ProcessPendingLicenseUpdates_t oProcessPendingLicenseUpdates = nullptr;
+	CUtlMemory_Grow_t oCUtlMemoryGrow = nullptr;
+
 	DetourHook<IClientConfigStore_SetString_t>* IClientConfigStore_SetString = nullptr;
 
 	DetourHook<IClientFriends_GetFriendGamePlayed_t>* IClientFriends_GetFriendGamePlayed = nullptr;
@@ -1484,6 +1510,14 @@ bool Hooks::init()
 		CUserAppManager_BuildDepotDependency = new DetourHook(Patterns::CUserAppManager::BuildDepotDependency, hkUserAppManager_BuildDepotDependency);
 
 	CWebSocketConnection_BBuildAndAsyncSendFrame = new DetourHook(Patterns::CWebSocketConnection::BBuildAndAsyncSendFrame, hkWebSocketConnection_BBuildAndAsyncSendFrame);
+
+	if (Patterns::CPackageInfo::GetPackageInfo.address != LM_ADDRESS_BAD)
+		CPackageInfo_GetPackageInfo = new DetourHook(Patterns::CPackageInfo::GetPackageInfo, hkCPackageInfo_GetPackageInfo);
+	oMarkLicenseAsChanged = Patterns::CUser::MarkLicenseAsChanged.address != LM_ADDRESS_BAD ? reinterpret_cast<MarkLicenseAsChanged_t>(Patterns::CUser::MarkLicenseAsChanged.address) : nullptr;
+	oProcessPendingLicenseUpdates = Patterns::CUser::ProcessPendingLicenseUpdates.address != LM_ADDRESS_BAD ? reinterpret_cast<ProcessPendingLicenseUpdates_t>(Patterns::CUser::ProcessPendingLicenseUpdates.address) : nullptr;
+	oCUtlMemoryGrow = nullptr;
+
+	LuaLoader::setOnDepotsChanged(&Package::notifyLicenseChanged);
 
 	CGameInfoDialog_ServerResponded = new DetourHook(VFTIndexes::CGameInfoDialog::ServerResponded, hkCGameInfoDialog_ServerResponded);
 

@@ -57,6 +57,8 @@ bool initDone();
 // overwrites those fields wholesale) does not drop lua-defined apps. Safe to
 // call before init() — operates on the (then empty) tables.
 void reconcileIntoConfig();
+void onDepotsChanged();
+void setOnDepotsChanged(void (*fn)());
 
 std::vector<uint32_t> takePendingAdditions();
 std::vector<uint32_t> takePendingRemovals();
