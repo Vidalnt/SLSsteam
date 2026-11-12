@@ -6,6 +6,8 @@
 #include "filewatcher.hpp"
 #include "log.hpp"
 #include "lua.hpp"
+#include "lua/LuaLoader.hpp"
+#include "lua/ManifestProvider.hpp"
 #include "utils.hpp"
 
 #include "yaml-cpp/yaml.h"
@@ -15,6 +17,7 @@
 #include <filesystem>
 #include <sstream>
 #include <string>
+#include <vector>
 
 
 std::unique_ptr<CFileWatcher> CConfig::watcher = std::make_unique<CFileWatcher>(onFileChange);
@@ -203,7 +206,105 @@ bool CConfig::loadSettings(const bool firstLoad, const bool silent)
 	steamIdOverride = getMap<AppId_t, uint64_t>(rootNode, "SteamIdOverride");
 	launchOptions = getMap<AppId_t, std::string>(rootNode, "LaunchOptions");
 
-	setAdditionalApps(getList<AppId_t>(rootNode, "AdditionalApps"), firstLoad);
+	// addedAppIds is defined as yaml ∪ lua, so the delta computation must see
+	// the live lua set too. Otherwise every yaml reload would report all lua
+	// apps as removed right before reconcileIntoConfig() restores them.
+	const auto yamlAdditional = getList<AppId_t>(rootNode, "AdditionalApps");
+	auto effectiveAdditional = yamlAdditional;
+	for (const auto id : LuaLoader::ownedAppIdsSnapshot())
+		effectiveAdditional.insert(id);
+	setAdditionalApps(effectiveAdditional, firstLoad);
+	yamlAddedAppIds = yamlAdditional;
+	yamlAppTokens = appTokens.copy();
+
+	packageInjection = getSetting<bool>(rootNode, "PackageInjection", true);
+
+	useLuaManifestOverrides.set(true);
+	{
+		const auto manifestNode = rootNode["Manifest"];
+		if (manifestNode)
+		{
+			if (manifestNode["Providers"])
+			{
+				try
+				{
+					auto providers = std::vector<std::string>();
+					for (auto n : manifestNode["Providers"])
+						providers.push_back(n.as<std::string>());
+					ManifestProvider::setProviders(providers);
+				}
+				catch(...)
+				{
+					setError(ELoadError::ParsingException, "Manifest.Providers");
+				}
+			}
+			try
+			{
+				if (manifestNode["UseLuaManifestOverrides"])
+					useLuaManifestOverrides.set(manifestNode["UseLuaManifestOverrides"].as<bool>());
+			}
+			catch(...)
+			{
+				setError(ELoadError::ParsingException, "Manifest.UseLuaManifestOverrides");
+			}
+			try
+			{
+				if (manifestNode["TimeoutConnectMs"])
+					manifestTimeoutConnectMs.set(manifestNode["TimeoutConnectMs"].as<uint32_t>());
+			}
+			catch(...)
+			{
+				setError(ELoadError::ParsingException, "Manifest.TimeoutConnectMs");
+			}
+			try
+			{
+				if (manifestNode["TimeoutTotalMs"])
+					manifestTimeoutTotalMs.set(manifestNode["TimeoutTotalMs"].as<uint32_t>());
+			}
+			catch(...)
+			{
+				setError(ELoadError::ParsingException, "Manifest.TimeoutTotalMs");
+			}
+			try
+			{
+				if (manifestNode["ReuseConnection"])
+					manifestReuseConnection.set(manifestNode["ReuseConnection"].as<bool>());
+			}
+			catch(...)
+			{
+				setError(ELoadError::ParsingException, "Manifest.ReuseConnection");
+			}
+		}
+		else
+		{
+			useLuaManifestOverrides.set(true);
+			setError(ELoadError::MissingKey, "Manifest");
+		}
+		if (!manifestTimeoutConnectMs.copy())
+			manifestTimeoutConnectMs.set(5000);
+		if (!manifestTimeoutTotalMs.copy())
+			manifestTimeoutTotalMs.set(10000);
+		if (!manifestReuseConnection.copy())
+			manifestReuseConnection.set(true);
+	}
+	{
+		auto luaNode = rootNode["Lua"];
+		std::vector<std::string> paths;
+		if (luaNode && luaNode["Paths"] && luaNode["Paths"].IsSequence())
+		{
+			for (const auto& n : luaNode["Paths"])
+			{
+				try
+				{
+					paths.push_back(n.as<std::string>());
+				}
+				catch(...)
+				{
+				}
+			}
+		}
+		luaPaths = paths;
+	}
 
 	//Do not log the keys themself
 	for (const auto& key : cdKeys.copy())
@@ -303,6 +404,8 @@ bool CConfig::loadSettings(const bool firstLoad, const bool silent)
 		//LOG_NOTIFY("Missing DenuvoGames entry in config!");
 		setError(ELoadError::MissingKey, "DenuvoGames");
 	}
+
+	LuaLoader::reconcileIntoConfig();
 
 	Lua::fireCallback(Lua::Callbacks::SLSsteam_ConfigLoaded);
 

@@ -5,10 +5,15 @@
 #include "../process.hpp"
 
 #include "fakeappid.hpp"
+#include "forge_ticket.hpp"
+
+#include "../ownership.hpp"
 
 #include "base64/base64.hpp"
 #include "yaml-cpp/emitter.h"
 #include "yaml-cpp/emittermanip.h"
+
+#include <cstring>
 
 #include <filesystem>
 #include <fstream>
@@ -57,6 +62,7 @@ void Ticket::onFileChange(const std::filesystem::path& path, __attribute__((unus
 }
 
 std::unordered_map<AppId_t, CSteamId> Ticket::oneTimeSteamIdSpoof = std::unordered_map<AppId_t, CSteamId>();
+std::mutex Ticket::spoofMapMutex;
 
 std::mutex Ticket::ticketMapMutex;
 std::unordered_map<AppId_t, std::shared_ptr<Ticket::SavedTicket>> Ticket::ticketMap = std::unordered_map<AppId_t, std::shared_ptr<Ticket::SavedTicket>>();
@@ -184,6 +190,7 @@ void Ticket::connectPipe(const HSteamPipe pipe)
 		return;
 	}
 
+	const auto guard = std::lock_guard(spoofMapMutex);
 	oneTimeSteamIdSpoof[proc.appId] = ticket->steamId;
 }
 
@@ -200,6 +207,7 @@ void Ticket::getEncryptedAppTicket(const AppId_t appId)
 		return;
 	}
 
+	const auto guard = std::lock_guard(spoofMapMutex);
 	oneTimeSteamIdSpoof[appId] = cached->steamId;
 }
 
@@ -224,6 +232,7 @@ void Ticket::getTicketOwnershipExtendedData(const AppId_t appId)
 		return;
 	}
 
+	const auto guard = std::lock_guard(spoofMapMutex);
 	oneTimeSteamIdSpoof[appId] = cached->steamId;
 }
 
@@ -289,4 +298,45 @@ void Ticket::recvMsg(CNetPacket* pkt)
 		default:
 			break;
 	}
+}
+
+uint32_t Ticket::getTicketOwnershipExtendedData(uint32_t appId, void* pTicket, uint32_t ticketSize, uint32_t* pOffAppId, uint32_t* pOffSteamId, uint32_t* pOffSig, uint32_t* pSigSize, void* pClientUser)
+{
+	if (ticketSize != 0)
+	{
+		const auto cached = getCachedTicket(appId, ETicketType::AppOwnershipTicket);
+		if (cached)
+		{
+			const auto guard = std::lock_guard(spoofMapMutex);
+			oneTimeSteamIdSpoof[appId] = cached->steamId;
+		}
+		return 0;
+	}
+	if (!Ownership::shouldSpoofOwnership(appId))
+		return 0;
+	ForgeTicket::acquireSourceTicket(pClientUser);
+	ForgeTicket::AppOwnershipTicket forged{};
+	if (!ForgeTicket::getAppOwnershipTicket(appId, forged))
+		return 0;
+	if (forged.data.empty() || forged.data.size() > 0x400)
+		return 0;
+	if (ticketSize < forged.totalSize)
+		return 0;
+	std::memcpy(pTicket, forged.data.data(), forged.data.size());
+	if (pOffAppId)
+		*pOffAppId = forged.appIdOffset;
+	if (pOffSteamId)
+		*pOffSteamId = forged.steamIdOffset;
+	if (pOffSig)
+		*pOffSig = forged.signatureOffset;
+	if (pSigSize)
+		*pSigSize = forged.signatureSize;
+	if (forged.data.size() >= 16)
+	{
+		uint64_t sid64 = 0;
+		std::memcpy(&sid64, forged.data.data() + forged.steamIdOffset, 8);
+		const auto guard = std::lock_guard(spoofMapMutex);
+		oneTimeSteamIdSpoof[appId] = CSteamId(sid64);
+	}
+	return forged.totalSize;
 }

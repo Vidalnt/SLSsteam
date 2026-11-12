@@ -69,6 +69,29 @@ namespace Patterns
 		extern Pattern_t BBuildAndAsyncSendFrame;
 	}
 
+	namespace CCMConnection
+	{
+		extern Pattern_t RecvPkt;
+	}
+
+	extern Pattern_t LoadDepotDecryptionKey;
+
+	namespace CPackageInfo
+	{
+		extern Pattern_t GetPackageInfo;
+	}
+
+	namespace CUser
+	{
+		extern Pattern_t MarkLicenseAsChanged;
+		extern Pattern_t ProcessPendingLicenseUpdates;
+	}
+
+	namespace CUtlMemory
+	{
+		extern Pattern_t Grow;
+	}
+
 	namespace IClientUtils
 	{
 		extern Pattern_t Offset_GetPipeIndex;

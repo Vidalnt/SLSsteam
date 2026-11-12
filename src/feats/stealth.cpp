@@ -38,7 +38,6 @@ uint32_t Stealth::sendAndRecvStoreUserStats2(CProtoBufMsgBase* send, CProtoBufMs
 bool Stealth::sendMsg(CNetPacket* pkt)
 {
 	bool choke = false;
-
 	switch (pkt->getProtoBufType())
 	{
 		case k_EMsgClientGamesPlayed:
@@ -79,15 +78,14 @@ bool Stealth::sendMsg(CNetPacket* pkt)
 		case k_EMsgClientGetAppOwnershipTicket:
 		{
 			const auto msg = pkt->deserializeBody<CMsgClientGetAppOwnershipTicket>();
+			choke = !g_pSteamEngine->getUser()->isSubscribed(msg.app_id());
 
-			if (!g_pSteamEngine->getUser()->isSubscribed(msg.app_id()))
+			if (choke)
 			{
 				AppOwnershipTicketReceived_t cb { };
 				cb.appId = msg.app_id();
 				cb.result = k_EResultOK;
 				g_pSteamEngine->getUser()->postCallback(ECallbackType::AppOwnershipTicketReceived_t, &cb, sizeof(cb));
-
-				choke = true;
 			}
 
 			break;

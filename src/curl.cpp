@@ -16,6 +16,11 @@ int Curl::downloadString(const char* url, std::string& out, const int timeOut)
 
 int Curl::downloadString(const char* url, const std::vector<std::string>& headers, std::string& out, const int timeOut)
 {
+	return postString(url, std::string(), headers, out, timeOut);
+}
+
+int Curl::postString(const char* url, const std::string& postBody, const std::vector<std::string>& headers, std::string& out, const int timeOut)
+{
 	LOG_DEBUG("Curl::getString(%s)\n", url);
 
 	static const auto exes = std::vector<std::string>
@@ -31,6 +36,12 @@ int Curl::downloadString(const char* url, const std::vector<std::string>& header
 		"--connect-timeout", std::to_string(timeOut),
 		url,
 	};
+
+	if (!postBody.empty())
+	{
+		args.insert(args.end() - 1, "--data");
+		args.insert(args.end() - 1, postBody);
+	}
 
 	for (const auto& header : headers)
 	{

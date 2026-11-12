@@ -13,6 +13,7 @@
 #include <pthread.h>
 #include <string>
 #include <type_traits>
+#include <vector>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -94,6 +95,16 @@ public:
 	MTVariable<LogLevelFlags_t> logLevels = 0xff;
 	MTVariable<bool> dumpInterfaceMaps;
 	MTVariable<bool> extendedLogging;
+
+	MTVariable<std::unordered_set<AppId_t>> yamlAddedAppIds;
+	MTVariable<std::unordered_map<AppId_t, uint64_t>> yamlAppTokens;
+
+	MTVariable<bool> packageInjection;
+	MTVariable<bool> useLuaManifestOverrides;
+	MTVariable<uint32_t> manifestTimeoutConnectMs;
+	MTVariable<uint32_t> manifestTimeoutTotalMs;
+	MTVariable<bool> manifestReuseConnection;
+	MTVariable<std::vector<std::string>> luaPaths;
 
 	MTVariable<std::unordered_set<AppId_t>> newApps;
 	MTVariable<std::unordered_set<AppId_t>> removedApps;

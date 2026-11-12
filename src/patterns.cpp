@@ -39,6 +39,14 @@ bool Patterns::init()
 	{
 		if (!pattern->find())
 		{
+			if (std::string(pattern->name) == "CCMConnection::RecvPkt" ||
+			    std::string(pattern->name) == "LoadDepotDecryptionKey" ||
+			    std::string(pattern->name) == "CUserAppManager::BuildDepotDependency" ||
+			    std::string(pattern->name) == "CUser::MarkLicenseAsChanged" ||
+			    std::string(pattern->name) == "CUser::ProcessPendingLicenseUpdates" ||
+			    std::string(pattern->name) == "CUtlMemory::Grow" ||
+			    std::string(pattern->name) == "CPackageInfo::GetPackageInfo")
+				continue;
 			found = false;
 		}
 	}
@@ -173,6 +181,59 @@ namespace Patterns
 			"89 C6 85 D2 78",
 			SigFollowMode::PrologueUpwards,
 			std::vector<int16_t> { 0xE8, 0x57, 0xE5, 0x89, 0x55 }
+		};
+	}
+
+	namespace CCMConnection
+	{
+		Pattern_t RecvPkt
+		{
+			"CCMConnection::RecvPkt",
+			"55 89 E5 57 E8 ? ? ? ? 81 C7 ? ? ? ? 56 53 83 EC 34 6A 01 FF 75 0C 89 FB E8 ? ? ? ?",
+			SigFollowMode::None
+		};
+	}
+
+	Pattern_t LoadDepotDecryptionKey
+	{
+		"LoadDepotDecryptionKey",
+		"55 57 56 53 E8 ? ? ? ? 81 C3 ? ? ? ? 83 EC 24 8B 44 24 44 8B 6C 24 38 8B 7C 24 3C 8B 74 24 40 89 44 24 10 8B 44 24 48 89 44 24 14",
+		SigFollowMode::None
+	};
+
+	namespace CPackageInfo
+	{
+		Pattern_t GetPackageInfo
+		{
+			"CPackageInfo::GetPackageInfo",
+			"E8 ? ? ? ? 05 ? ? ? ? 55 89 E5 57 56 53 83 EC 3C 8B 55 14 8B 75 0C 89 45 CC 8B 45 10 89 55 DC 89 45 D8 8B 45 08",
+			SigFollowMode::None
+		};
+	}
+
+	namespace CUser
+	{
+		Pattern_t MarkLicenseAsChanged
+		{
+			"CUser::MarkLicenseAsChanged",
+			"55 57 56 53 E8 ? ? ? ? 81 C3 ? ? ? ? 83 EC 2C 8B 74 24 40 8B 44 24 48 8B BE ? 1B 00 00 88 44 24 1C 8D 86 ? ? 00 00",
+			SigFollowMode::None
+		};
+		Pattern_t ProcessPendingLicenseUpdates
+		{
+			"CUser::ProcessPendingLicenseUpdates",
+			"55 E8 ? ? ? ? 81 C5 ? ? ? ? 57 56 53 83 EC 0C 8B 7C 24 20 8B B7 ? 1B 00 00 83 EE 01 79 0F EB 5D",
+			SigFollowMode::None
+		};
+	}
+
+	namespace CUtlMemory
+	{
+		Pattern_t Grow
+		{
+			"CUtlMemory::Grow",
+			"E8 ? ? ? ? 8B 85 04 FF FF FF 83 C4 10 8B 40 54 89 85 FC FE FF FF",
+			SigFollowMode::Relative
 		};
 	}
 
