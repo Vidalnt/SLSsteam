@@ -79,15 +79,23 @@ link-bins:
 
 $(LUA_STAMP):
 	@mkdir -p $(LUA_DIR)
-	curl -fsSL "https://www.lua.org/ftp/lua-$(LUA_VER).tar.gz" -o "$(LUA_DIR)/lua.tar.gz"
+	@ok=0; for url in \
+		"https://www.lua.org/ftp/lua-$(LUA_VER).tar.gz" \
+		"https://snapshot.debian.org/archive/debian/20260831T145707Z/pool/main/l/lua5.4/lua5.4_$(LUA_VER).orig.tar.gz"; do \
+		echo "[*] Fetching $$url"; \
+		if curl -fL --connect-timeout 10 --retry 2 --retry-delay 1 "$$url" -o "$(LUA_DIR)/lua.tar.gz.tmp"; then \
+			mv "$(LUA_DIR)/lua.tar.gz.tmp" "$(LUA_DIR)/lua.tar.gz"; ok=1; break; \
+		fi; \
+		rm -f "$(LUA_DIR)/lua.tar.gz.tmp"; \
+	done; test $$ok -eq 1
 	printf '%s  %s\n' "$(LUA_SHA256)" "$(LUA_DIR)/lua.tar.gz" | sha256sum -c -
 	tar xzf "$(LUA_DIR)/lua.tar.gz" -C "$(LUA_DIR)" --strip-components=2 "lua-$(LUA_VER)/src"
 	rm -f "$(LUA_DIR)/lua.tar.gz" "$(LUA_DIR)/lua.c" "$(LUA_DIR)/luac.c"
 	touch "$@"
 
-obj/luavendor/%.o: $(LUA_DIR)/%.c | $(LUA_STAMP)
+obj/luavendor/%.o: | $(LUA_STAMP)
 	@mkdir -p $(dir $@)
-	$(CC) -m32 -fPIC -O2 -DLUA_USE_LINUX -I$(LUA_DIR) -c $< -o $@
+	$(CC) -m32 -fPIC -O2 -DLUA_USE_LINUX -I$(LUA_DIR) -c "$(LUA_DIR)/$*.c" -o $@
 
 $(DEFAULT_LUA_A): $(lua_objs)
 	@mkdir -p $(dir $@)
