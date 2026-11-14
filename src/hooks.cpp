@@ -1164,20 +1164,21 @@ static uint32_t hkClientUser_GetAppOwnershipTicketExtendedData
 		pOffSig,
 		pSigSize
    );
-
-	const uint32_t sizeOverride = Ticket::getTicketOwnershipExtendedData(appId, pTicket, ticketSize, pOffAppId, pOffSteamId, pOffSig, pSigSize, pClientUser);
-	if (sizeOverride)
+	if (size == 0)
 	{
-		LOG_ONCE("%s(%u)->%u (spliced)\n", Hooks::IClientUser_GetAppOwnershipTicketExtendedData->name.c_str(), appId, sizeOverride);
-		return sizeOverride;
+		const uint32_t spliced = Ticket::getTicketOwnershipExtendedData(appId, pTicket, ticketSize, pOffAppId, pOffSteamId, pOffSig, pSigSize, pClientUser);
+		if (spliced)
+		{
+			LOG_ONCE("%s(%u)->%u (spliced)\n", Hooks::IClientUser_GetAppOwnershipTicketExtendedData->name.c_str(), appId, spliced);
+			return spliced;
+		}
 	}
-
-	LOG_ONCE("%s(%u)->%u\n", Hooks::IClientUser_GetAppOwnershipTicketExtendedData->name.c_str(), appId, size);
-
-	if (size)
+	else
 	{
 		Ticket::getTicketOwnershipExtendedData(appId);
 	}
+
+	LOG_ONCE("%s(%u)->%u\n", Hooks::IClientUser_GetAppOwnershipTicketExtendedData->name.c_str(), appId, size);
 
 	return size;
 }

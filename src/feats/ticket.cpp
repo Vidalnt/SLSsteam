@@ -5,15 +5,18 @@
 #include "../process.hpp"
 
 #include "fakeappid.hpp"
-#include "forge_ticket.hpp"
 
 #include "../ownership.hpp"
-
+#include "../sdk/IClientUser.hpp"
+#include "../sdk/protobufs/enums_clientserver.pb.h"
 #include "base64/base64.hpp"
 #include "yaml-cpp/emitter.h"
 #include "yaml-cpp/emittermanip.h"
 
+#include <atomic>
+#include <ctime>
 #include <cstring>
+#include <vector>
 
 #include <filesystem>
 #include <fstream>
@@ -67,6 +70,70 @@ std::mutex Ticket::spoofMapMutex;
 std::mutex Ticket::ticketMapMutex;
 std::unordered_map<AppId_t, std::shared_ptr<Ticket::SavedTicket>> Ticket::ticketMap = std::unordered_map<AppId_t, std::shared_ptr<Ticket::SavedTicket>>();
 std::unordered_map<AppId_t, std::shared_ptr<Ticket::SavedTicket>> Ticket::encryptedTicketMap = std::unordered_map<AppId_t, std::shared_ptr<Ticket::SavedTicket>>();
+
+namespace {
+constexpr AppId_t kFallbackAppId = 480;
+constexpr AppId_t kSecondaryFallbackAppId = 291550;
+constexpr uint32_t kMaxTicketSize = 65536;
+std::atomic<std::time_t> g_lastFallbackRefresh { 0 };
+
+void noteSteamIdFromTicket(const AppId_t appId, const uint8_t* pTicket, const uint32_t size, const uint32_t steamIdOffset)
+{
+	if (!pTicket || steamIdOffset > size || size - steamIdOffset < sizeof(uint64_t))
+	{
+		return;
+	}
+
+	uint64_t sid64 = 0;
+	std::memcpy(&sid64, pTicket + steamIdOffset, sizeof(sid64));
+	const auto guard = std::lock_guard(Ticket::spoofMapMutex);
+	Ticket::oneTimeSteamIdSpoof[appId] = CSteamId(sid64);
+}
+
+void refreshFallbackTicket(IClientUser* pClientUser, const char* reason)
+{
+	if (!pClientUser)
+	{
+		return;
+	}
+
+	const std::time_t now = std::time(nullptr);
+	const std::time_t last = g_lastFallbackRefresh.exchange(now);
+	if (last != 0 && now - last < 5)
+	{
+		return;
+	}
+
+	pClientUser->updateAppOwnershipTicket(kFallbackAppId, false);
+	LOG_DEBUG("Requesting fallback AppOwnershipTicket for %u (%s)\n", kFallbackAppId, reason ? reason : "fallback");
+}
+
+bool spliceFallbackTicket(void* pTicket, const uint32_t ticketSize, const uint32_t size, const uint32_t sigOffset, const AppId_t appId)
+{
+	if (!pTicket || size == 0 || size > kMaxTicketSize || size > ticketSize || size + sizeof(uint32_t) > ticketSize)
+	{
+		return false;
+	}
+
+	if (sigOffset > size)
+	{
+		return false;
+	}
+
+	auto* source = reinterpret_cast<const uint8_t*>(pTicket);
+	auto* destination = reinterpret_cast<uint8_t*>(pTicket);
+
+	std::vector<uint8_t> temp(size + sizeof(uint32_t));
+	std::memcpy(temp.data(), source, size);
+	std::memmove(temp.data() + sigOffset + sizeof(uint32_t), temp.data() + sigOffset, size - sigOffset);
+	for (size_t i = 0; i < sizeof(uint32_t); ++i)
+	{
+		temp[sigOffset + i] = static_cast<uint8_t>((appId >> (8 * i)) & 0xff);
+	}
+	std::memcpy(destination, temp.data(), temp.size());
+	return true;
+}
+} // namespace
 
 std::filesystem::path Ticket::getTicketDir()
 {
@@ -251,6 +318,19 @@ void Ticket::recvMsg(CNetPacket* pkt)
 			recvEncryptedAppTicket(pkt);
 			break;
 
+		case k_EMsgClientAccountInfo:
+			if (auto* steamEngine = g_pSteamEngine)
+			{
+				if (auto* pUser = steamEngine->getUser(0))
+				{
+					if (auto* pClientUser = pUser->getClientUser())
+					{
+						refreshFallbackTicket(pClientUser, "accountInfo");
+					}
+				}
+			}
+			break;
+
 		default:
 			break;
 	}
@@ -258,41 +338,61 @@ void Ticket::recvMsg(CNetPacket* pkt)
 
 uint32_t Ticket::getTicketOwnershipExtendedData(uint32_t appId, void* pTicket, uint32_t ticketSize, uint32_t* pOffAppId, uint32_t* pOffSteamId, uint32_t* pOffSig, uint32_t* pSigSize, void* pClientUser)
 {
-	if (ticketSize != 0)
-	{
-		const auto cached = getCachedTicket(appId, ETicketType::AppOwnershipTicket);
-		if (cached)
-		{
-			const auto guard = std::lock_guard(spoofMapMutex);
-			oneTimeSteamIdSpoof[appId] = cached->steamId;
-		}
-		return 0;
-	}
 	if (!Ownership::shouldSpoofOwnership(appId))
-		return 0;
-	ForgeTicket::acquireSourceTicket(pClientUser);
-	ForgeTicket::AppOwnershipTicket forged{};
-	if (!ForgeTicket::getAppOwnershipTicket(appId, forged))
-		return 0;
-	if (forged.data.empty() || forged.data.size() > 0x400)
-		return 0;
-	if (ticketSize < forged.totalSize)
-		return 0;
-	std::memcpy(pTicket, forged.data.data(), forged.data.size());
-	if (pOffAppId)
-		*pOffAppId = forged.appIdOffset;
-	if (pOffSteamId)
-		*pOffSteamId = forged.steamIdOffset;
-	if (pOffSig)
-		*pOffSig = forged.signatureOffset;
-	if (pSigSize)
-		*pSigSize = forged.signatureSize;
-	if (forged.data.size() >= 16)
 	{
-		uint64_t sid64 = 0;
-		std::memcpy(&sid64, forged.data.data() + forged.steamIdOffset, 8);
-		const auto guard = std::lock_guard(spoofMapMutex);
-		oneTimeSteamIdSpoof[appId] = CSteamId(sid64);
+		return 0;
 	}
-	return forged.totalSize;
+
+	if (appId == kFallbackAppId || appId == kSecondaryFallbackAppId)
+	{
+		return 0;
+	}
+
+	if (!pTicket || ticketSize == 0)
+	{
+		refreshFallbackTicket(reinterpret_cast<IClientUser*>(pClientUser), "null buffer");
+		return 0;
+	}
+
+	auto* pClientUserRaw = reinterpret_cast<IClientUser*>(pClientUser);
+	if (!pClientUserRaw)
+	{
+		return 0;
+	}
+
+	AppId_t fallback = kFallbackAppId;
+	uint32_t size = pClientUserRaw->getAppOwnershipTicketExtendeData(fallback, pTicket, ticketSize, pOffAppId, pOffSteamId, pOffSig, pSigSize);
+	if (size == 0)
+	{
+		fallback = kSecondaryFallbackAppId;
+		size = pClientUserRaw->getAppOwnershipTicketExtendeData(fallback, pTicket, ticketSize, pOffAppId, pOffSteamId, pOffSig, pSigSize);
+	}
+
+	if (size == 0 || size > ticketSize || size > kMaxTicketSize)
+	{
+		refreshFallbackTicket(pClientUserRaw, "ticket miss");
+		return 0;
+	}
+
+	const uint32_t sigOffset = pOffSig ? *pOffSig : size + 1;
+	if (!spliceFallbackTicket(pTicket, ticketSize, size, sigOffset, appId))
+	{
+		LOG_WARN("Ticket: failed to splice %u from %u\n", appId, fallback);
+		return 0;
+	}
+
+	if (pOffAppId)
+	{
+		*pOffAppId = sigOffset;
+	}
+	if (pOffSig)
+	{
+		*pOffSig = sigOffset + sizeof(uint32_t);
+	}
+	if (pOffSteamId)
+	{
+		noteSteamIdFromTicket(appId, reinterpret_cast<const uint8_t*>(pTicket), size, *pOffSteamId);
+	}
+	LOG_ONCE("Ticket: spliced %u from %u (%u bytes)\n", appId, fallback, size);
+	return size;
 }
